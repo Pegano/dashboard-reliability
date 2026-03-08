@@ -1,6 +1,6 @@
 # Architectuur
 
-> Dit document wordt uitgebouwd naarmate technische keuzes worden gemaakt. Startpunt is het MVP (Power BI, Fase 1).
+> Bijgewerkt na technical spike (8 maart 2026). Stack keuzes zijn bevestigd.
 
 ---
 
@@ -10,7 +10,10 @@
 [Power BI API]
       |
       v
-[Connector Service]   <-- pollt periodiek dashboards, datasets, queries
+[Scheduler Process]   <-- losse process, pollt elke 5 minuten
+      |
+      v
+[Connector Service]   <-- haalt workspaces, datasets, refresh history, reports op
       |
       v
 [Detectie Engine]     <-- analyseert health, detecteert anomalies
@@ -18,55 +21,101 @@
    +--+--+
    |     |
    v     v
-[Alert  [Data Store]  <-- slaat health history, metrics, events op
+[Alert  [PostgreSQL + TimescaleDB]  <-- health history, metrics, events, configuratie
 Service]
    |
    v
 [Slack / E-mail]
 
-[Frontend]  <-- leest uit Data Store, toont health overzicht
+[FastAPI]   <-- REST API voor frontend en externe integraties
+   |
+   v
+[Next.js frontend]  <-- health overzicht, incidents, root cause hints
 ```
+
+---
+
+## Procesmodel
+
+Twee losstaande processen — bewust gescheiden:
+
+| Process | Verantwoordelijkheid |
+|---|---|
+| **API server** (FastAPI) | Serveert data naar frontend, verwerkt configuratie wijzigingen |
+| **Scheduler** (APScheduler) | Pollt Power BI API, draait detectie, verstuurt alerts |
+
+Waarom gescheiden: de scheduler hoeft niet te weten van de frontend. Debuggen, herstarten en schalen kan per process onafhankelijk. Deployment via Docker Compose met twee services.
 
 ---
 
 ## Componenten
 
 ### Connector Service
-- Verantwoordelijk voor het ophalen van data via externe APIs (Power BI, later Tableau, dbt, etc.)
-- Modulair opgezet: elke tool heeft een eigen connector module
-- Scheduled polling of webhook-gebaseerd (afhankelijk van API mogelijkheden)
+- Haalt data op via Power BI REST API als service principal (OAuth client credentials flow)
+- Modulair: elke externe tool (Power BI, later Tableau, dbt) heeft een eigen connector module
+- Polling interval: elke 5 minuten (configureerbaar)
+- Bewezen in spike: workspaces, datasets, reports, refresh history werken
 
 ### Detectie Engine
-- Verwerkt ruwe data naar health signals
-- Regels: query failures, dataset staleness, metric afwijkingen
-- Later uitbreidbaar met ML-modellen
+- Verwerkt ruwe connector data naar health signals
+- Drie lagen:
+  - **Layer 1** — dataset checks: refresh failures, refresh delays, schema changes
+  - **Layer 2** — query checks: error rate, timeouts (via activity logs, nice-to-have MVP)
+  - **Layer 3** — metric checks: anomaly detection op waarden (vereist XMLA/DAX, post-MVP)
+- Statistische anomaly detection: 7-daags gemiddelde ± 3σ, harde drop > 50%, zero check
+- Geen ML voor MVP — iteratief tunen op false positive rate
 
 ### Alert Service
 - Verstuurt notificaties via Slack en e-mail
-- Configurable: drempelwaarden, ontvangers, kanalen per dashboard of team
-- Deduplicatie: voorkomt alert fatigue
+- Deduplicatie: zelfde incident triggert geen tweede alert binnen 1 uur
+- Drempelwaarden configureerbaar per dashboard of workspace
 
 ### Data Store
-- Slaat op: health history, events, metrics, configuratie
-- Keuze: nader te bepalen in Fase 0 (PostgreSQL of tijdreeksdatabase zoals TimescaleDB)
+- PostgreSQL als primaire database
+- TimescaleDB extensie voor de metrics tabel (tijdreeksqueries)
+- Slaat op: health history, incidents, metric waarden, alerts, configuratie
 
-### Frontend
+### FastAPI (backend API)
+- REST API voor frontend
+- Serveert health statussen, incidents, root cause hints
+- Beheert configuratie (workspaces, alert kanalen, drempelwaarden)
+
+### Next.js frontend
 - Dashboard health overzicht (groen/geel/rood)
-- Historische trends
-- Root cause hints per incident
+- Incident detailpagina met root cause hints en impact view
+- Historische trends per dashboard
+- Business user view (vereenvoudigd)
 
 ---
 
-## Tech stack (te bevestigen in Fase 0)
+## Tech stack (bevestigd)
 
-| Laag | Kandidaten |
+| Component | Keuze | Reden |
+|---|---|---|
+| Backend API | Python + FastAPI | Sterk ecosysteem voor data integraties, msal/pandas/scipy beschikbaar |
+| Scheduler | APScheduler (los process) | Lichtgewicht, geen externe broker nodig voor MVP |
+| Database | PostgreSQL + TimescaleDB | Relationeel + efficiënte tijdreeksqueries, één stack |
+| Frontend | Next.js + Tailwind | SSR voor snelle initiële load, ingebouwde API routes |
+| Auth naar Power BI | MSAL (service principal) | Bewezen in spike, werkt zonder gebruikersinteractie |
+| Alerts | Slack SDK + Resend | Eenvoudig te integreren, lage overhead |
+| Hosting | Hetzner VPS + Docker Compose | Goedkoop, volledig in beheer, eenvoudig te deployen |
+
+---
+
+## Spike resultaten (8 maart 2026)
+
+Uitgevoerd tegen workspace `dev` in tenant `WNKDataConsultancy.onmicrosoft.com`.
+
+| Test | Resultaat |
 |---|---|
-| Backend | Python (FastAPI) of Node.js (Fastify) |
-| Detectie | Python (pandas, scipy voor anomaly detection) |
-| Database | PostgreSQL + TimescaleDB, of ClickHouse |
-| Frontend | React + Tailwind, of Next.js |
-| Alerts | Slack SDK, SendGrid of Resend |
-| Hosting | Docker-gebaseerd, deploybaar op eigen infra of cloud |
+| OAuth token ophalen via service principal | Geslaagd |
+| Workspaces ophalen | Geslaagd — 1 workspace gevonden |
+| Datasets ophalen | Geslaagd — Sales dataset gevonden |
+| Reports ophalen | Geslaagd — Sales report gevonden |
+| Refresh history ophalen | Leeg — workspace heeft nog geen scheduled refresh gehad |
+| DAX/XMLA metric waarden | Niet getest — geparkeerd voor post-MVP |
+
+**Conclusie:** Layer 1 is technisch bewezen. Geen blockers gevonden voor het MVP.
 
 ---
 
@@ -74,5 +123,6 @@ Service]
 
 - **Modulair:** elke connector en elk detectie-algoritme is onafhankelijk uitbreidbaar
 - **Event-driven:** health changes worden als events opgeslagen, niet overschreven
-- **API-first:** frontend en externe systemen communiceren via een interne REST of GraphQL API
+- **API-first:** frontend en externe systemen communiceren via de FastAPI laag
 - **Config as data:** drempelwaarden, kanalen en regels zijn instelbaar zonder code changes
+- **Twee processen:** API server en scheduler zijn gescheiden — onafhankelijk te beheren
