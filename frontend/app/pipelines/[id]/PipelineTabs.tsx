@@ -9,6 +9,14 @@ type Tab = (typeof TABS)[number];
 
 const COMING_SOON: Tab[] = ["Analysis", "Suggested Fix"];
 
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleString("nl-NL", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
 const incidentTypeLabel: Record<string, string> = {
   refresh_failed: "Refresh mislukt",
   refresh_delayed: "Refresh vertraagd",
@@ -19,10 +27,9 @@ interface Props {
   dataset: Dataset;
   activeIncidents: Incident[];
   allIncidents: Incident[];
-  formatDate: (d: string | null) => string;
 }
 
-export default function PipelineTabs({ dataset, activeIncidents, allIncidents, formatDate }: Props) {
+export default function PipelineTabs({ dataset, activeIncidents, allIncidents }: Props) {
   const [active, setActive] = useState<Tab>("Runs");
 
   return (

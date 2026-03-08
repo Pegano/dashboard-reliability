@@ -1,7 +1,6 @@
 import { fetchDatasets, fetchIncidents } from "@/lib/api";
 import { Dataset, Incident, HealthStatus } from "@/lib/types";
 import StatusDot from "@/components/StatusDot";
-import SeverityBadge from "@/components/SeverityBadge";
 import { notFound } from "next/navigation";
 import PipelineTabs from "./PipelineTabs";
 
@@ -59,7 +58,6 @@ export default async function PipelineDetailPage({
         dataset={dataset}
         activeIncidents={activeIncidents}
         allIncidents={incidents}
-        formatDate={formatDate}
       />
     </div>
   );
