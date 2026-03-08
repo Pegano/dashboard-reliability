@@ -119,6 +119,39 @@ Uitgevoerd tegen workspace `dev` in tenant `WNKDataConsultancy.onmicrosoft.com`.
 
 ---
 
+## Connector roadmap — fase 1 naar fase 3
+
+Elke connector is onafhankelijk maar schrijft naar dezelfde genormaliseerde database. De detectie engine en frontend weten niet welke connector de data heeft geproduceerd.
+
+### Fase 1 — BI laag (nu)
+```
+[Power BI API] → [powerbi connector] → [database]
+```
+Detecteert: refresh failures, schema changes, dataset staleness.
+
+### Fase 3 — Volledige keten
+```
+[Postgres/Snowflake] → [db connector]      ↘
+[dbt]                → [dbt connector]      → [database] → [detectie] → [causale keten]
+[Airflow]            → [airflow connector]  ↗
+[Power BI]           → [powerbi connector] ↗
+```
+
+Detecteert: waar in de keten het mis ging — bron, transformatie, of BI laag.
+
+**Causale keten voorbeeld:**
+```
+Postgres kolom hernoemd (14:32)
+  → dbt model gefaald (15:00)
+    → Power BI refresh gefaald (15:05)
+      → 3 dashboards geraakt
+        → business metric incorrect
+```
+
+Elke connector is afzonderlijk waardevol. Teams nemen de connectors af die passen bij hun stack.
+
+---
+
 ## Architectuurprincipes
 
 - **Modulair:** elke connector en elk detectie-algoritme is onafhankelijk uitbreidbaar
@@ -126,3 +159,4 @@ Uitgevoerd tegen workspace `dev` in tenant `WNKDataConsultancy.onmicrosoft.com`.
 - **API-first:** frontend en externe systemen communiceren via de FastAPI laag
 - **Config as data:** drempelwaarden, kanalen en regels zijn instelbaar zonder code changes
 - **Twee processen:** API server en scheduler zijn gescheiden — onafhankelijk te beheren
+- **Connector-agnostisch:** detectie engine en frontend weten niet welke bron de data levert
