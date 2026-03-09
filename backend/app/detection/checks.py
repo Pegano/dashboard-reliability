@@ -8,8 +8,9 @@ import logging
 import uuid
 from sqlalchemy.orm import Session
 from app.models.dataset import Dataset, RefreshStatus
-from app.models.schema import DatasetColumn
+from app.models.schema import DatasetColumn, DatasetSnapshot
 from app.models.incident import Incident, IncidentStatus, IncidentSeverity
+from app.models.refresh_run import RefreshRun, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +18,84 @@ REFRESH_DELAY_HOURS = 24  # incident als dataset langer dan X uur niet gerefresh
 
 
 def run_all_checks(db: Session) -> list[Incident]:
-    incidents = []
+    new_incidents = []
     datasets = db.query(Dataset).all()
 
     for dataset in datasets:
-        incidents += check_refresh_failed(db, dataset)
-        incidents += check_refresh_delayed(db, dataset)
-        incidents += check_schema_changes(db, dataset)
+        auto_resolve(db, dataset)
+        new_incidents += check_refresh_failed(db, dataset)
+        new_incidents += check_refresh_delayed(db, dataset)
+        new_incidents += check_schema_changes(db, dataset)
+        new_incidents += check_refresh_slow(db, dataset)
+        new_incidents += check_dataset_growth(db, dataset)
 
-    if incidents:
-        db.add_all(incidents)
+    if new_incidents:
+        db.add_all(new_incidents)
         db.commit()
-        logger.info(f"{len(incidents)} nieuwe incident(en) aangemaakt")
+        logger.info(f"{len(new_incidents)} nieuwe incident(en) aangemaakt")
 
-    return incidents
+    return new_incidents
+
+
+def auto_resolve(db: Session, dataset: Dataset) -> None:
+    """Sluit actieve incidents automatisch als de conditie niet meer geldt."""
+    now = datetime.datetime.utcnow()
+    active = db.query(Incident).filter(
+        Incident.dataset_id == dataset.id,
+        Incident.status.in_([IncidentStatus.active, IncidentStatus.suppressed]),
+    ).all()
+
+    for incident in active:
+        resolved = False
+
+        if incident.type == "refresh_failed":
+            resolved = dataset.refresh_status != RefreshStatus.failed
+
+        elif incident.type == "refresh_delayed":
+            if dataset.last_refresh_at:
+                last_refresh = dataset.last_refresh_at.replace(tzinfo=None) if dataset.last_refresh_at.tzinfo else dataset.last_refresh_at
+                resolved = (now - last_refresh).total_seconds() / 3600 < REFRESH_DELAY_HOURS
+            else:
+                resolved = False
+
+        elif incident.type == "schema_change":
+            inactive_cols = db.query(DatasetColumn).filter(
+                DatasetColumn.dataset_id == dataset.id,
+                DatasetColumn.is_active == False,
+            ).count()
+            resolved = inactive_cols == 0
+
+        elif incident.type == "refresh_slow":
+            # Opgelost als de meest recente run weer binnen de baseline valt
+            runs = db.query(RefreshRun).filter(
+                RefreshRun.dataset_id == dataset.id,
+                RefreshRun.status == RunStatus.completed,
+                RefreshRun.started_at.isnot(None),
+                RefreshRun.ended_at.isnot(None),
+            ).order_by(RefreshRun.ended_at.desc()).limit(BASELINE_RUNS + 1).all()
+            if len(runs) >= 3:
+                last_ms = int((runs[0].ended_at - runs[0].started_at).total_seconds() * 1000)
+                baseline_ms = sum(
+                    int((r.ended_at - r.started_at).total_seconds() * 1000) for r in runs[1:]
+                ) / len(runs[1:])
+                resolved = baseline_ms < 1000 or last_ms < (baseline_ms * SLOW_RUN_FACTOR)
+
+        elif incident.type == "dataset_growth":
+            # Opgelost als volume weer binnen de baseline valt (bijv. na truncate/reload)
+            snapshots = db.query(DatasetSnapshot).filter(
+                DatasetSnapshot.dataset_id == dataset.id,
+                DatasetSnapshot.row_count_estimate.isnot(None),
+            ).order_by(DatasetSnapshot.synced_at.desc()).limit(BASELINE_SNAPSHOTS + 1).all()
+            if len(snapshots) >= 3:
+                baseline_vol = sum(s.row_count_estimate for s in snapshots[1:]) / len(snapshots[1:])
+                resolved = baseline_vol < 100 or snapshots[0].row_count_estimate < (baseline_vol * GROWTH_FACTOR)
+
+        if resolved:
+            incident.status = IncidentStatus.resolved
+            incident.resolved_at = now
+            logger.info(f"Auto-resolved incident {incident.type} for dataset {dataset.name}")
+
+    db.flush()
 
 
 def check_refresh_failed(db: Session, dataset: Dataset) -> list[Incident]:
@@ -40,14 +105,23 @@ def check_refresh_failed(db: Session, dataset: Dataset) -> list[Incident]:
     if _active_incident_exists(db, dataset.id, "refresh_failed"):
         return []
 
+    # Haal error code op uit meest recente gefaalde run
+    last_failed_run = db.query(RefreshRun).filter(
+        RefreshRun.dataset_id == dataset.id,
+        RefreshRun.status == RunStatus.failed,
+    ).order_by(RefreshRun.ended_at.desc()).first()
+
+    error_code = last_failed_run.error_code if last_failed_run else None
+    hint = error_code if error_code else None
+
     logger.warning(f"Refresh mislukt: {dataset.name}")
     return [Incident(
         id=str(uuid.uuid4()),
         dataset_id=dataset.id,
         type="refresh_failed",
         severity=IncidentSeverity.critical,
-        root_cause_hint="Dataset refresh mislukt. Controleer de Power BI refresh instellingen en de databron.",
-        detail=f"Dataset '{dataset.name}' heeft een mislukte refresh.",
+        root_cause_hint=hint,
+        detail=None,
     )]
 
 
@@ -72,8 +146,8 @@ def check_refresh_delayed(db: Session, dataset: Dataset) -> list[Incident]:
         dataset_id=dataset.id,
         type="refresh_delayed",
         severity=IncidentSeverity.warning,
-        root_cause_hint=f"Dataset is al {hours_since_refresh:.0f} uur niet gerefresht. Controleer de refresh schedule.",
-        detail=f"Laatste succesvolle refresh: {dataset.last_refresh_at.isoformat()}",
+        root_cause_hint=f"Dataset has not been refreshed for {hours_since_refresh:.0f} hours. Check the refresh schedule.",
+        detail=f"Last successful refresh: {dataset.last_refresh_at.isoformat()}",
     )]
 
 
@@ -97,14 +171,116 @@ def check_schema_changes(db: Session, dataset: Dataset) -> list[Incident]:
         dataset_id=dataset.id,
         type="schema_change",
         severity=IncidentSeverity.critical,
-        root_cause_hint=f"Kolommen verdwenen uit dataset. Rapporten die deze kolommen gebruiken kunnen incorrect zijn.",
-        detail=f"Verdwenen kolommen: {col_names}",
+        root_cause_hint=f"Columns removed from dataset. Reports using these columns may be incorrect.",
+        detail=f"Removed columns: {col_names}",
+    )]
+
+
+SLOW_RUN_FACTOR = 2.0    # factor boven baseline = incident
+GROWTH_FACTOR = 2.0      # factor boven baseline = incident
+BASELINE_RUNS = 10       # aantal runs voor duur-baseline
+BASELINE_SNAPSHOTS = 4   # aantal snapshots voor volume-baseline
+
+
+def _fmt_ms(ms: int) -> str:
+    secs = round(ms / 1000)
+    mins = secs // 60
+    s = secs % 60
+    return f"{mins}m {s}s" if mins > 0 else f"{s}s"
+
+
+def _fmt_volume(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
+
+def check_refresh_slow(db: Session, dataset: Dataset) -> list[Incident]:
+    """Detecteer als de laatste run significant langer duurde dan de baseline."""
+    if _active_incident_exists(db, dataset.id, "refresh_slow"):
+        return []
+
+    # Laatste N succesvolle runs met bekende duur
+    runs = db.query(RefreshRun).filter(
+        RefreshRun.dataset_id == dataset.id,
+        RefreshRun.status == RunStatus.completed,
+        RefreshRun.started_at.isnot(None),
+        RefreshRun.ended_at.isnot(None),
+    ).order_by(RefreshRun.ended_at.desc()).limit(BASELINE_RUNS + 1).all()
+
+    if len(runs) < 3:
+        return []
+
+    last_run = runs[0]
+    baseline_runs = runs[1:]  # vergelijk tov vorige runs, niet tov zichzelf
+
+    last_ms = int((last_run.ended_at - last_run.started_at).total_seconds() * 1000)
+    baseline_ms = sum(
+        int((r.ended_at - r.started_at).total_seconds() * 1000) for r in baseline_runs
+    ) / len(baseline_runs)
+
+    if baseline_ms < 1000 or last_ms < (baseline_ms * SLOW_RUN_FACTOR):
+        return []
+
+    detail = (
+        f"Last run: {_fmt_ms(last_ms)} — "
+        f"avg last {len(baseline_runs)} runs: {_fmt_ms(int(baseline_ms))} "
+        f"({last_ms / baseline_ms:.1f}x slower)"
+    )
+    logger.warning(f"Trage refresh: {dataset.name} — {detail}")
+    return [Incident(
+        id=str(uuid.uuid4()),
+        dataset_id=dataset.id,
+        type="refresh_slow",
+        severity=IncidentSeverity.warning,
+        root_cause_hint=None,
+        detail=detail,
+    )]
+
+
+def check_dataset_growth(db: Session, dataset: Dataset) -> list[Incident]:
+    """Detecteer als het datavolume significant is gegroeid t.o.v. de baseline."""
+    if _active_incident_exists(db, dataset.id, "dataset_growth"):
+        return []
+
+    snapshots = db.query(DatasetSnapshot).filter(
+        DatasetSnapshot.dataset_id == dataset.id,
+        DatasetSnapshot.row_count_estimate.isnot(None),
+    ).order_by(DatasetSnapshot.synced_at.desc()).limit(BASELINE_SNAPSHOTS + 1).all()
+
+    if len(snapshots) < 3:
+        return []
+
+    latest = snapshots[0]
+    baseline_snapshots = snapshots[1:]
+
+    baseline_vol = sum(s.row_count_estimate for s in baseline_snapshots) / len(baseline_snapshots)
+
+    if baseline_vol < 100 or latest.row_count_estimate < (baseline_vol * GROWTH_FACTOR):
+        return []
+
+    detail = (
+        f"Current volume: {_fmt_volume(latest.row_count_estimate)} — "
+        f"avg last {len(baseline_snapshots)} syncs: {_fmt_volume(int(baseline_vol))} "
+        f"({latest.row_count_estimate / baseline_vol:.1f}x larger)"
+    )
+    logger.warning(f"Dataset groei: {dataset.name} — {detail}")
+    return [Incident(
+        id=str(uuid.uuid4()),
+        dataset_id=dataset.id,
+        type="dataset_growth",
+        severity=IncidentSeverity.warning,
+        root_cause_hint=None,
+        detail=detail,
     )]
 
 
 def _active_incident_exists(db: Session, dataset_id: str, incident_type: str) -> bool:
+    """Returns True if there's an active OR suppressed incident — don't create a duplicate."""
     return db.query(Incident).filter(
         Incident.dataset_id == dataset_id,
         Incident.type == incident_type,
-        Incident.status == IncidentStatus.active,
+        Incident.status.in_([IncidentStatus.active, IncidentStatus.suppressed]),
     ).first() is not None

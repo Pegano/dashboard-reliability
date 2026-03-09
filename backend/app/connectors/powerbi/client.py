@@ -42,3 +42,23 @@ def get_dataset_tables(workspace_id: str, dataset_id: str) -> list[dict]:
     )
     r.raise_for_status()
     return r.json().get("value", [])
+
+
+def get_datasources(workspace_id: str, dataset_id: str) -> list[dict]:
+    r = requests.get(
+        f"{BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/datasources",
+        headers=_headers(),
+    )
+    r.raise_for_status()
+    return r.json().get("value", [])
+
+
+def get_refresh_schedule(workspace_id: str, dataset_id: str) -> dict | None:
+    r = requests.get(
+        f"{BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/refreshSchedule",
+        headers=_headers(),
+    )
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.json()

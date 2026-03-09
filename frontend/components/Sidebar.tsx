@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const nav = [
-  { href: "/", label: "Pipelines", icon: "⬡" },
-  { href: "/incidents", label: "Incidents", icon: "⚠" },
+  { href: "/", label: "Models", icon: "⬡" },
+  { href: "/incidents", label: "Issues", icon: "⚠" },
+  { href: "/environment", label: "Environment", icon: "◈" },
 ];
 
 export default function Sidebar() {
@@ -37,8 +38,15 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="px-5 py-4 border-t text-xs" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-        v0.1.0
+      <div className="px-5 py-4 border-t text-xs flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
+        <span style={{ color: "var(--text-muted)" }}>v0.1.0</span>
+        <Link
+          href="/docs"
+          className="flex items-center justify-center w-5 h-5 rounded-full border text-xs hover:opacity-70 transition-opacity"
+          style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+        >
+          ?
+        </Link>
       </div>
     </aside>
   );

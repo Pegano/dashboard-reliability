@@ -14,9 +14,12 @@ class Settings(BaseSettings):
     poll_interval_minutes: int = 5
 
     # Alerts
-    slack_webhook_url: str = ""
     resend_api_key: str = ""
     alert_email_to: str = ""
+    alert_email_from: str = "Pulse Alerts <alerts@pulse.wnkdata.nl>"
+    alert_webhook_url: str = ""  # Teams, Slack, of elke HTTP webhook
+    alert_telegram_bot_token: str = ""
+    alert_telegram_chat_id: str = ""
 
     class Config:
         env_file = ".env"

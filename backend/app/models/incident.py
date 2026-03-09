@@ -8,6 +8,7 @@ import enum
 class IncidentStatus(enum.Enum):
     active = "active"
     resolved = "resolved"
+    suppressed = "suppressed"
 
 
 class IncidentSeverity(enum.Enum):
@@ -27,6 +28,7 @@ class Incident(Base):
     type = Column(String, nullable=False)  # "refresh_failed", "refresh_delayed", "schema_change"
     root_cause_hint = Column(Text, nullable=True)
     detail = Column(Text, nullable=True)
+    suppressed_until = Column(DateTime, nullable=True)
 
     dataset = relationship("Dataset", back_populates="incidents")
     alerts = relationship("Alert", back_populates="incident")

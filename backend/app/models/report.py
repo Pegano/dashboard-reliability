@@ -11,6 +11,7 @@ class Report(Base):
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
     dataset_id = Column(String, ForeignKey("datasets.id"), nullable=True)
     name = Column(String, nullable=False)
+    web_url = Column(String, nullable=True)
     synced_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     workspace = relationship("Workspace", back_populates="reports")

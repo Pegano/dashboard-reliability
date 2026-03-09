@@ -48,4 +48,9 @@ def get_dataset_health(dataset_id: str, db: Session = Depends(get_db)):
         "active_incidents": len(active_incidents),
         "last_refresh_at": dataset.last_refresh_at,
         "refresh_status": dataset.refresh_status,
+        "datasources": dataset.datasources or [],
+        "refresh_schedule_enabled": dataset.refresh_schedule_enabled,
+        "refresh_schedule_times": dataset.refresh_schedule_times or [],
+        "workspace_id": dataset.workspace_id,
+        "web_url": dataset.web_url,
     }

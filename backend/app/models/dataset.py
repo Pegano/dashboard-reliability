@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Boolean, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import datetime
@@ -20,6 +20,13 @@ class Dataset(Base):
     last_refresh_at = Column(DateTime, nullable=True)
     refresh_status = Column(Enum(RefreshStatus), default=RefreshStatus.unknown)
     synced_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    web_url = Column(String, nullable=True)  # Power BI / Fabric direct link
+
+    # Datasource info (populated during sync)
+    datasources = Column(JSON, nullable=True)          # list of {type, connection, gatewayId}
+    refresh_schedule_enabled = Column(Boolean, nullable=True)
+    refresh_schedule_times = Column(JSON, nullable=True)  # list of "HH:MM" strings
 
     workspace = relationship("Workspace", back_populates="datasets")
     schema_columns = relationship("DatasetColumn", back_populates="dataset")

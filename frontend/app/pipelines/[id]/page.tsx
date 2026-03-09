@@ -1,5 +1,5 @@
-import { fetchDatasets, fetchIncidents } from "@/lib/api";
-import { Dataset, Incident, HealthStatus } from "@/lib/types";
+import { fetchDatasets, fetchDatasetHealth, fetchIncidents, fetchReports, fetchRuns, fetchWorkspaces } from "@/lib/api";
+import { Dataset, DatasetHealth, Incident, Report, RefreshRun, HealthStatus, Workspace } from "@/lib/types";
 import StatusDot from "@/components/StatusDot";
 import { notFound } from "next/navigation";
 import PipelineTabs from "./PipelineTabs";
@@ -21,22 +21,34 @@ function formatDate(dateStr: string | null): string {
 
 export default async function PipelineDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string; incident?: string }>;
 }) {
   const { id } = await params;
+  const { tab, incident: focusIncidentId } = await searchParams;
 
-  const [datasets, allIncidents] = await Promise.all([
+  const [datasets, allIncidents, reports, runs, workspaces, health] = await Promise.all([
     fetchDatasets(),
     fetchIncidents(),
+    fetchReports(id),
+    fetchRuns(id),
+    fetchWorkspaces(),
+    fetchDatasetHealth(id),
   ]);
 
   const dataset: Dataset | undefined = datasets.find((d: Dataset) => d.id === id);
   if (!dataset) notFound();
 
+  const workspaceMap = Object.fromEntries(workspaces.map((w: Workspace) => [w.id, w.name]));
+  const workspaceName = workspaceMap[dataset.workspace_id] ?? dataset.workspace_id;
+
   const incidents: Incident[] = allIncidents.filter((i: Incident) => i.dataset_id === id);
   const activeIncidents = incidents.filter((i) => i.status === "active");
   const status = deriveStatus(incidents);
+
+  const defaultTab = tab === "fix" ? "Fix" : tab === "issues" || activeIncidents.length > 0 ? "Issues" : "Runs";
 
   return (
     <div>
@@ -49,15 +61,24 @@ export default async function PipelineDetailPage({
           </h1>
         </div>
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-          Laatste sync: {formatDate(dataset.synced_at)} &middot; Refresh status: {dataset.refresh_status}
+          <span style={{ color: "var(--text)" }}>{workspaceName}</span>
+          {" "}&middot; Last sync: {formatDate(dataset.synced_at)} &middot; Refresh: {dataset.refresh_status}
+          {reports.length > 0 && (
+            <> &middot; {reports.length} report{reports.length !== 1 ? "s" : ""}</>
+          )}
         </p>
       </div>
 
       {/* Tabs */}
       <PipelineTabs
         dataset={dataset}
+        health={health as DatasetHealth}
         activeIncidents={activeIncidents}
         allIncidents={incidents}
+        reports={reports}
+        runs={runs}
+        defaultTab={defaultTab as "Runs" | "Issues" | "Fix"}
+        focusIncidentId={focusIncidentId}
       />
     </div>
   );

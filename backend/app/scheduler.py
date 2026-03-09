@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.connectors.powerbi.sync import sync_all
 from app.detection.checks import run_all_checks
+from app.alerts.service import send_alerts_for_incidents
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def poll_job():
         incidents = run_all_checks(db)
         if incidents:
             logger.info(f"{len(incidents)} incident(en) gedetecteerd")
+            send_alerts_for_incidents(db, incidents)
     except Exception as e:
         logger.error(f"Poll cyclus mislukt: {e}", exc_info=True)
     finally:
