@@ -1,14 +1,15 @@
-import { fetchIncidents, fetchDatasets, fetchWorkspaces } from "@/lib/api";
+import { fetchIncidents, fetchDatasets, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import { Incident } from "@/lib/types";
 import IssuesTable from "./IssuesTable";
 import AutoRefresh from "../AutoRefresh";
 import RefreshIndicator from "../RefreshIndicator";
 
 export default async function IncidentsPage() {
-  const [incidents, datasets, workspaces] = await Promise.all([
+  const [incidents, datasets, workspaces, syncStatus] = await Promise.all([
     fetchIncidents(),
     fetchDatasets(),
     fetchWorkspaces(),
+    fetchSyncStatus(),
   ]);
 
   const active = incidents.filter((i: Incident) => i.status === "active").length;
@@ -24,7 +25,7 @@ export default async function IncidentsPage() {
             {active} active &middot; {resolved} resolved
           </p>
         </div>
-        <RefreshIndicator />
+        <RefreshIndicator lastSyncedAt={syncStatus.last_synced_at} />
       </div>
 
       <IssuesTable incidents={incidents} datasets={datasets} workspaces={workspaces} />

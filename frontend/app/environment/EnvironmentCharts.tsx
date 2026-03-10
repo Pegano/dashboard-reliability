@@ -2,7 +2,7 @@
 
 interface HeatmapBucket { hour: number; total: number; failed: number; }
 interface VolumePoint { day: string; value: number; }
-interface VolumeSeries { dataset_id: string; name: string; points: VolumePoint[]; }
+interface VolumeSeries { dataset_id: string; name: string; workspace_id: string; points: VolumePoint[]; }
 interface DatasetMapEntry { dataset_id: string; name: string; workspace_id: string; reports: string[]; report_count: number; }
 
 interface Env {
@@ -131,75 +131,94 @@ export default function EnvironmentCharts({ env, workspaceMap }: { env: Env; wor
         })()}
       </div>
 
-      {/* Volume trend */}
-      {volume_series.length > 0 && allDays.length > 1 && (
-        <div
-          className="rounded-lg border px-5 py-4"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-        >
-          <p className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>
-            DATASET VOLUME OVER TIME
-          </p>
-          <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
-            Sum of column cardinalities per dataset — proxy for data volume
-          </p>
-          {/* Legenda */}
-          <div className="flex flex-wrap gap-4 mb-3">
-            {volume_series.map((s, i) => (
-              <div key={s.dataset_id} className="flex items-center gap-1.5">
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: colors[i % colors.length] }} />
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>{s.name}</span>
-              </div>
-            ))}
-          </div>
-          {/* Chart: één rij per dataset, bars per dag */}
-          <div className="space-y-3">
-            {volume_series.map((series, i) => {
-              const color = colors[i % colors.length];
-              const maxVal = Math.max(...series.points.map(p => p.value), 1);
-              const pointMap = Object.fromEntries(series.points.map(p => [p.day, p.value]));
-              return (
-                <div key={series.dataset_id}>
-                  <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{series.name}</p>
-                  <div className="flex gap-0.5 items-end" style={{ height: 32 }}>
-                    {allDays.map(day => {
-                      const val = pointMap[day] ?? null;
-                      const h = val !== null ? Math.max(3, Math.round((val / maxVal) * 30)) : 0;
-                      return (
-                        <div
-                          key={day}
-                          className="flex-1"
-                          title={val !== null ? `${day}: ${fmtVolume(val)}` : `${day}: no data`}
-                          style={{
-                            height: h || 2,
-                            background: val !== null ? color : "var(--border)",
-                            opacity: val !== null ? 0.75 : 0.3,
-                            borderRadius: 1,
-                            alignSelf: "flex-end",
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="flex justify-between mt-0.5">
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {allDays[0]?.slice(5)}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {series.points.length > 0
-                        ? `latest: ${fmtVolume(series.points[series.points.length - 1].value)}`
-                        : ""}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {allDays[allDays.length - 1]?.slice(5)}
-                    </span>
-                  </div>
+      {/* Volume trend — stacked bar chart per workspace */}
+      {volume_series.length > 0 && allDays.length > 1 && (() => {
+        // Groepeer series per workspace
+        const wsIds = Array.from(new Set(volume_series.map(s => s.workspace_id).filter(Boolean)));
+        const wsColors: Record<string, string> = {};
+        wsIds.forEach((id, i) => { wsColors[id] = colors[i % colors.length]; });
+
+        // Per dag: totaal per workspace
+        const stackedData: { day: string; segments: { wsId: string; value: number }[]; total: number }[] = allDays.map(day => {
+          const segments = wsIds.map(wsId => {
+            const value = volume_series
+              .filter(s => s.workspace_id === wsId)
+              .reduce((sum, s) => {
+                const pt = s.points.find(p => p.day === day);
+                return sum + (pt ? pt.value : 0);
+              }, 0);
+            return { wsId, value };
+          });
+          return { day, segments, total: segments.reduce((s, seg) => s + seg.value, 0) };
+        });
+
+        const maxTotal = Math.max(...stackedData.map(d => d.total), 1);
+        const CHART_H = 80;
+
+        return (
+          <div
+            className="rounded-lg border px-5 py-4"
+            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+          >
+            <p className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>
+              DATASET VOLUME OVER TIME
+            </p>
+            <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+              Total column cardinality per workspace — proxy for data volume growth
+            </p>
+            {/* Legenda */}
+            <div className="flex flex-wrap gap-4 mb-4">
+              {wsIds.map(wsId => (
+                <div key={wsId} className="flex items-center gap-1.5">
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: wsColors[wsId] }} />
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {workspaceMap[wsId] ?? wsId}
+                  </span>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+            {/* Stacked bars */}
+            <div className="flex gap-0.5 items-end" style={{ height: CHART_H }}>
+              {stackedData.map(({ day, segments, total }) => {
+                const totalH = total > 0 ? Math.max(3, Math.round((total / maxTotal) * (CHART_H - 4))) : 2;
+                const tooltip = segments.map(seg => `${workspaceMap[seg.wsId] ?? seg.wsId}: ${fmtVolume(seg.value)}`).join(" · ") + ` (total: ${fmtVolume(total)})`;
+                return (
+                  <div
+                    key={day}
+                    className="flex-1 flex flex-col justify-end"
+                    title={`${day.slice(5)} — ${tooltip}`}
+                    style={{ height: CHART_H }}
+                  >
+                    <div style={{ height: totalH, display: "flex", flexDirection: "column", justifyContent: "flex-end", borderRadius: "2px 2px 0 0", overflow: "hidden" }}>
+                      {segments.filter(s => s.value > 0).map((seg, si) => {
+                        const segH = Math.round((seg.value / total) * totalH);
+                        return (
+                          <div
+                            key={seg.wsId}
+                            style={{
+                              height: segH,
+                              background: wsColors[seg.wsId],
+                              opacity: 0.75,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* X-as labels */}
+            <div className="flex justify-between mt-1">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>{allDays[0]?.slice(5)}</span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                total: {fmtVolume(stackedData[stackedData.length - 1]?.total ?? 0)}
+              </span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>{allDays[allDays.length - 1]?.slice(5)}</span>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Dataset → rapport mapping */}
       <div

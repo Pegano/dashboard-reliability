@@ -5,6 +5,7 @@ Draait na elke sync cyclus.
 
 import datetime
 import logging
+import re
 import uuid
 from sqlalchemy.orm import Session
 from app.models.dataset import Dataset, RefreshStatus
@@ -15,6 +16,35 @@ from app.models.refresh_run import RefreshRun, RunStatus
 logger = logging.getLogger(__name__)
 
 REFRESH_DELAY_HOURS = 24  # incident als dataset langer dan X uur niet gerefresht is
+
+# Error description patterns die wijzen op een schema-gerelateerde oorzaak
+_SCHEMA_HINT_PATTERNS = [
+    (re.compile(r"column does not exist", re.I), "missing_column"),
+    (re.compile(r"DataFormat\.Error", re.I), "type_mismatch"),
+    (re.compile(r"couldn'?t convert", re.I), "type_mismatch"),
+    (re.compile(r"type mismatch", re.I), "type_mismatch"),
+    (re.compile(r"table.*not found|relation.*does not exist", re.I), "missing_table"),
+]
+
+
+def _parse_error_description(error_description: str | None) -> dict:
+    """
+    Parseer Power BI error description.
+    Extraheert kolomnamen uit <oii>...</oii> tags en detecteert schema-hint patronen.
+    Returns dict met 'columns' (list) en 'schema_hint' (str | None).
+    """
+    if not error_description:
+        return {"columns": [], "schema_hint": None}
+
+    columns = re.findall(r"<oii>(.*?)</oii>", error_description)
+
+    schema_hint = None
+    for pattern, hint_type in _SCHEMA_HINT_PATTERNS:
+        if pattern.search(error_description):
+            schema_hint = hint_type
+            break
+
+    return {"columns": columns, "schema_hint": schema_hint}
 
 
 def run_all_checks(db: Session) -> list[Incident]:
@@ -63,7 +93,12 @@ def auto_resolve(db: Session, dataset: Dataset) -> None:
                 DatasetColumn.dataset_id == dataset.id,
                 DatasetColumn.is_active == False,
             ).count()
-            resolved = inactive_cols == 0
+            type_changed_cols = db.query(DatasetColumn).filter(
+                DatasetColumn.dataset_id == dataset.id,
+                DatasetColumn.is_active == True,
+                DatasetColumn.previous_data_type != None,
+            ).count()
+            resolved = inactive_cols == 0 and type_changed_cols == 0
 
         elif incident.type == "refresh_slow":
             # Opgelost als de meest recente run weer binnen de baseline valt
@@ -95,7 +130,7 @@ def auto_resolve(db: Session, dataset: Dataset) -> None:
             incident.resolved_at = now
             logger.info(f"Auto-resolved incident {incident.type} for dataset {dataset.name}")
 
-    db.flush()
+    db.commit()
 
 
 def check_refresh_failed(db: Session, dataset: Dataset) -> list[Incident]:
@@ -112,16 +147,34 @@ def check_refresh_failed(db: Session, dataset: Dataset) -> list[Incident]:
     ).order_by(RefreshRun.ended_at.desc()).first()
 
     error_code = last_failed_run.error_code if last_failed_run else None
-    hint = error_code if error_code else None
+    error_description = last_failed_run.error_description if last_failed_run else None
 
-    logger.warning(f"Refresh mislukt: {dataset.name}")
+    parsed = _parse_error_description(error_description)
+
+    # Bouw hint op basis van error code + schema-signalen
+    if parsed["schema_hint"] == "missing_column" and parsed["columns"]:
+        col_list = ", ".join(f"'{c}'" for c in parsed["columns"])
+        hint = f"Column {col_list} not found in datasource — likely removed or renamed."
+    elif parsed["schema_hint"] == "type_mismatch" and parsed["columns"]:
+        col_list = ", ".join(f"'{c}'" for c in parsed["columns"])
+        hint = f"Data type mismatch on column {col_list} — source type may have changed."
+    elif parsed["schema_hint"] == "type_mismatch":
+        hint = "Data type mismatch detected — a column type in the datasource may have changed."
+    elif parsed["schema_hint"] == "missing_table":
+        hint = "A table referenced by this dataset no longer exists in the datasource."
+    else:
+        hint = error_code if error_code else None
+
+    detail = re.sub(r"</?oii>", "", error_description) if error_description else None
+
+    logger.warning(f"Refresh mislukt: {dataset.name} — {error_code}")
     return [Incident(
         id=str(uuid.uuid4()),
         dataset_id=dataset.id,
         type="refresh_failed",
         severity=IncidentSeverity.critical,
         root_cause_hint=hint,
-        detail=None,
+        detail=detail,
     )]
 
 
@@ -152,27 +205,44 @@ def check_refresh_delayed(db: Session, dataset: Dataset) -> list[Incident]:
 
 
 def check_schema_changes(db: Session, dataset: Dataset) -> list[Incident]:
-    changed_columns = db.query(DatasetColumn).filter(
+    removed_columns = db.query(DatasetColumn).filter(
         DatasetColumn.dataset_id == dataset.id,
         DatasetColumn.is_active == False,
     ).all()
 
-    if not changed_columns:
+    type_changed_columns = db.query(DatasetColumn).filter(
+        DatasetColumn.dataset_id == dataset.id,
+        DatasetColumn.is_active == True,
+        DatasetColumn.previous_data_type != None,
+    ).all()
+
+    if not removed_columns and not type_changed_columns:
         return []
 
     if _active_incident_exists(db, dataset.id, "schema_change"):
         return []
 
-    col_names = ", ".join(f"{c.table_name}.{c.column_name}" for c in changed_columns)
-    logger.warning(f"Schema change: {dataset.name} — verdwenen kolommen: {col_names}")
+    details = []
+    if removed_columns:
+        col_names = ", ".join(f"{dataset.name}.{c.table_name}.{c.column_name}" for c in removed_columns)
+        details.append(f"Removed columns: {col_names}")
+        logger.warning(f"Schema change: {dataset.name} — verdwenen kolommen: {col_names}")
+
+    if type_changed_columns:
+        type_changes = ", ".join(
+            f"{dataset.name}.{c.table_name}.{c.column_name} ({c.previous_data_type} → {c.data_type})"
+            for c in type_changed_columns
+        )
+        details.append(f"Type changes: {type_changes}")
+        logger.warning(f"Schema change: {dataset.name} — type wijzigingen: {type_changes}")
 
     return [Incident(
         id=str(uuid.uuid4()),
         dataset_id=dataset.id,
         type="schema_change",
         severity=IncidentSeverity.critical,
-        root_cause_hint=f"Columns removed from dataset. Reports using these columns may be incorrect.",
-        detail=f"Removed columns: {col_names}",
+        root_cause_hint="Column structure changed. Reports using affected columns may break.",
+        detail=" | ".join(details),
     )]
 
 

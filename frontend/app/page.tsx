@@ -1,4 +1,4 @@
-import { fetchDatasets, fetchIncidents, fetchWorkspaces } from "@/lib/api";
+import { fetchDatasets, fetchIncidents, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import { Dataset, Incident, HealthStatus, Workspace } from "@/lib/types";
 import ModelsTable from "./ModelsTable";
 import AutoRefresh from "./AutoRefresh";
@@ -14,10 +14,11 @@ function deriveStatus(dataset: Dataset, incidents: Incident[]): HealthStatus {
 }
 
 export default async function PipelinesPage() {
-  const [datasets, incidents, workspaces] = await Promise.all([
+  const [datasets, incidents, workspaces, syncStatus] = await Promise.all([
     fetchDatasets(),
     fetchIncidents(),
     fetchWorkspaces(),
+    fetchSyncStatus(),
   ]);
 
   const workspaceMap = Object.fromEntries(workspaces.map((w: Workspace) => [w.id, w.name]));
@@ -33,7 +34,7 @@ export default async function PipelinesPage() {
   });
 
   return (
-    <div>
+    <div style={{ maxWidth: 960, margin: "0 auto" }}>
       <AutoRefresh />
       <div className="flex items-start justify-between mb-8">
         <div>
@@ -44,7 +45,7 @@ export default async function PipelinesPage() {
             Health overview of all semantic models
           </p>
         </div>
-        <RefreshIndicator />
+        <RefreshIndicator lastSyncedAt={syncStatus.last_synced_at} />
       </div>
 
       <ModelsTable rows={rows} counts={counts} workspaceMap={workspaceMap} />

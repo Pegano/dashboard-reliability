@@ -18,6 +18,7 @@ Pulse monitort Power BI-omgevingen continu en geeft bij problemen direct antwoor
 
 ### Monitoring & detectie
 - **Refresh mislukt** — melding zodra een dataset-refresh faalt, inclusief de Power BI-foutcode (bijv. `CredentialsExpired`, `GatewayTimeout`, `DataSourceError`)
+- **Kolomnaam in foutmelding** — bij een refresh-fout die veroorzaakt wordt door een ontbrekende of hernoemde kolom, toont Pulse direct de naam van die kolom in de hint (geëxtraheerd uit de Power BI error description)
 - **Refresh vertraagd** — melding als een dataset langer dan 24 uur niet is ververst
 - **Schema-wijziging** — melding als kolommen verdwijnen uit een dataset (via COLUMNSTATISTICS DAX — werkt zonder XMLA/Premium)
 - Detectie draait na elke sync-cyclus, volledig automatisch
@@ -70,6 +71,49 @@ Pulse monitort Power BI-omgevingen continu en geeft bij problemen direct antwoor
 - Schema-sync via DAX executeQueries (COLUMNSTATISTICS) — breed ondersteund
 - Datasource-informatie en refresh-schema worden per sync-cyclus opgehaald
 - Deeplinks via Power BI API `webUrl` — compatibel met zowel klassieke als Fabric-workspaces
+
+---
+
+## Detectie-architectuur & beperkingen
+
+### Hoe schema-detectie werkt
+
+Pulse gebruikt twee lagen:
+
+1. **Na een succesvolle refresh** — COLUMNSTATISTICS() geeft de actuele kolomstructuur van het Power BI-model terug. Pulse vergelijkt dit met de vorige sync en detecteert verdwenen kolommen.
+2. **Bij een gefaalde refresh** — de Power BI error description bevat vaak de kolomnaam die het probleem veroorzaakt (formaat: `<oii>kolomnaam</oii>`). Pulse parseert dit en toont de kolomnaam direct in het incident.
+
+### Huidige beperking: data type wijzigingen
+
+Pulse detecteert **niet** wanneer alleen het data type van een kolom wijzigt (bijv. `INTEGER → TEXT`), tenzij die wijziging de refresh doet falen:
+
+- **Incompatibele type change** (bijv. tekst in een numerieke kolom): refresh faalt → Pulse meldt `refresh_failed` met de kolomnaam in de hint ✅
+- **Compatibele type change** (bijv. `INTEGER → TEXT` met numerieke waarden): Power BI absorbeert dit transparant, refresh slaagt → Pulse detecteert niets ❌
+
+De reden: COLUMNSTATISTICS() geeft geen expliciete data types terug — alleen min/max waarden waaruit het type wordt afgeleid. Bij numerieke tekst ziet Pulse het type nog steeds als `int`.
+
+### Architectuurroute: proactieve bronmetadata-vergelijking
+
+De fundamentele oplossing is **niet wachten tot de refresh faalt**, maar de bronmetadata direct uitlezen en vergelijken met het Power BI-model:
+
+| Stap | Wat | Hoe |
+|---|---|---|
+| 1 | Bronschema ophalen | Direct verbinding met de datasource (PostgreSQL `information_schema`, SQL Server `sys.columns`, etc.) |
+| 2 | Model verwacht schema | COLUMNSTATISTICS() na succesvolle refresh — kolommen + afgeleid type |
+| 3 | Vergelijken | Kolom aanwezig in bron maar niet in model → nieuwe kolom. Kolom in model maar niet in bron → verwijderd. Type afwijkend → type-wijziging |
+| 4 | Proactief melden | Incident *voor* de volgende refresh — niet pas als die faalt |
+
+**Vereisten:**
+- Verbinding met de datasource vanuit de Pulse-omgeving (directe DB-toegang of via gateway-connector)
+- Per datasource-type een connector implementeren (PostgreSQL, SQL Server, Snowflake, etc.)
+- Credentials voor de bron (apart van de Power BI credentials)
+
+**Waarde:**
+- Type-wijzigingen detecteerbaar vóór de refresh
+- Proactieve waarschuwing: "Kolom `amount` bestaat niet meer in de bron — volgende refresh zal falen"
+- Niet afhankelijk van het al-dan-niet falen van Power BI
+
+Dit is een bewuste keuze voor een volgende fase. De huidige error-parsing dekt de meeste praktijkgevallen al af zonder extra datasource-verbindingen.
 
 ---
 

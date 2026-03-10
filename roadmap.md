@@ -60,7 +60,13 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 - [x] **Analysis tab** — summary cards (total runs, success rate, avg duration) + run dots per model
 - [x] **Fix tab** — rule-based suggestions per active incident type
 - [x] **Multiple workspaces** — workspace filter in models overview
-- [x] **Auto-refresh** — router.refresh() every 60s + manual ↻ button
+- [x] **Auto-refresh** — router.refresh() every 60s; "Synced X min ago" indicator (no manual button — see Phase 5 for proper sync control)
+- [x] **Fix tab** — data chain, error code hints, schedule warning, Power BI deeplinks (Fabric-compatible via webUrl)
+- [x] **Incident → Fix navigation** — click incident card goes directly to its fix; tab switch clears focus
+- [x] **Datasource + schedule sync** — gateway info, connection details, refresh schedule per dataset
+- [x] **Schema sync via DAX** — COLUMNSTATISTICS() via executeQueries; no XMLA/Premium required
+- [x] **Environment page** — totals, 24h refresh heatmap, volume over time, dataset→report mapping
+- [x] **Anomaly detection foundation** — refresh_slow + dataset_growth checks; cardinality snapshots per sync cycle
 
 ---
 
@@ -75,6 +81,7 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 - [ ] **Capacity throttling detection** — detect patterns consistent with capacity limits
 - [ ] **Improved Analysis tab** — trend charts, failure frequency, duration over time (replaces current placeholder)
 - [ ] **Improved Fix tab** — context-aware suggestions using Claude API (replaces rule-based placeholder)
+- [ ] **On-demand refresh trigger** — trigger a Power BI dataset refresh directly from Pulse via the REST API (`POST /datasets/{id}/refreshes`); useful when a fix has been applied and you want to verify immediately without waiting for the next scheduled refresh
 
 ---
 
@@ -97,12 +104,50 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 
 **Goal:** Make Pulse a product others can adopt without friction.
 
+### Authentication and access control
+- [ ] **Login / identity** — user accounts with email + password or SSO (Azure AD / Google); no anonymous access in production
+- [ ] **Roles** — at minimum: Admin (full access + settings) and Viewer (read-only); extendable per organisation
+- [ ] **Session management** — JWT or server-side sessions, secure cookies
+
+### Workspace and alert preferences
+- [ ] **Workspace labels** — mark workspaces as dev / acc / prod (or custom label); visible throughout the UI
+- [ ] **Alert preferences per user** — per user: which workspaces trigger alerts, which channels (email, Telegram, webhook); dev workspaces off by default
+- [ ] **Alert preferences per workspace** — org-level setting: alerts on/off per workspace regardless of user preference
+- [ ] **Configurable refresh rate** — admin can set poll interval (default 5 min) per organisation or workspace
+
+### Filtering and navigation
+Filters need to be consistent, predictable, and positioned at the right level — not bolted on per page.
+
+Design principle: global filters (workspace, environment label) live in the **left sidebar**, below the navigation tabs — not in a top bar. This follows the pattern of tools like Linear and Notion: the sidebar is the persistent context layer. Local filters (status, severity) stay inline with the content they filter.
+
+The sidebar filter section is context-aware:
+- Workspace filter only shown when 2+ workspaces exist
+- Environment label filter only shown when workspaces have been labelled (dev/acc/prod)
+- At 10+ workspaces: searchable dropdown instead of radio list
+- After login is implemented: filter state persisted per user, not just per session
+
+- [ ] **Sidebar workspace filter** — radio list or dropdown in sidebar; replaces current button row in ModelsTable
+- [ ] **Sidebar environment label filter** — filter by dev/acc/prod label across all pages
+- [ ] **Filter state in URL** — workspace filter reflected in URL params so links are shareable and bookmarkable
+- [ ] **Scalable workspace selector** — searchable dropdown for 10+ workspaces; shows label (dev/acc/prod) if set
+
+### Onboarding and setup
 - [ ] **One-click Power BI connect** — OAuth delegated flow, no manual app registration
 - [ ] **Setup wizard** — guided UI for the service principal flow (interim)
-- [ ] **Multi-tenant** — organisations, users, roles and access control
-- [ ] **Admin controls** — per-organisation settings for suppress, alerts, thresholds
+- [ ] **Multi-tenant infrastructure** — separate database per organisation (Scenario C); see deployment-architecture.md
 - [ ] **Self-serve onboarding** — sign up, connect, monitor in under 10 minutes
 - [ ] **Pricing and billing** — Level 1/2 base, Level 3 upsell
+
+### Operational monitoring
+
+Required before onboarding the first paying customer. Details in deployment-architecture.md.
+
+- [x] **`/api/health` endpoint** — returns DB status + scheduler last run + scheduler_late flag
+- [ ] **Uptime monitoring** — external ping on `/api/health` every 5 minutes (UptimeRobot or similar)
+- [ ] **Scheduler heartbeat** — dead-man's-switch ping after each sync cycle (Healthchecks.io); alert if silent >10 min
+- [ ] **Error tracking** — Sentry Python SDK in backend and scheduler; catches unhandled exceptions
+- [ ] **Process monitoring** — PM2 auto-restart confirmed; PM2 Plus or equivalent for external alerting
+- [ ] **Resource alerts** — disk, memory, CPU thresholds (add when server load warrants it)
 
 ### Deployment model: secure / on-premise
 

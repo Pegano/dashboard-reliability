@@ -136,3 +136,48 @@ APScheduler is sequentieel — bij >20 klanten met elk meerdere workspaces wordt
 Introduceer de agent als "Pulse Enterprise" of "Pulse On-Premises Agent" SKU. De centrale DB-structuur van C is herbruikbaar — alleen de collector verandert van actieve polling naar passieve event-ontvangst.
 
 **De keuze voor C nu sluit geen enkel later pad af.**
+
+---
+
+## Server & operationele monitoring
+
+Pulse monitort Power BI-omgevingen van klanten — maar wie monitort Pulse zelf? Dit is een vereiste vóór productie-onboarding van klanten.
+
+### Wat gemonitord moet worden
+
+| Laag | Wat | Hoe |
+|---|---|---|
+| **Server health** | CPU, geheugen, schijfruimte | Betaald: Datadog / Better Uptime / Grafana Cloud — of gratis: node_exporter + Prometheus |
+| **Process health** | pulse-api, pulse-scheduler, pulse-frontend alive? | PM2 heeft ingebouwde process monitoring + restart-on-crash. PM2 Plus voor externe alerting. |
+| **API health** | `/api/health` endpoint reageert en DB-connectie werkt | Externe uptime monitor: Better Uptime, UptimeRobot of Checkly — ping elke minuut |
+| **Background jobs** | Scheduler draait en sync-cycli voltooien succesvol | Heartbeat: scheduler stuurt na elke cyclus een ping naar een dead-man's-switch (bijv. Healthchecks.io) — bij uitblijven alert |
+| **Error tracking** | Onverwachte exceptions in backend/scheduler | Sentry (Python SDK) — vangt alle unhandled exceptions, groepeert, alerteert |
+| **Alerts** | Alle bovenstaande events naar één kanaal | Email + Telegram (al aanwezig in Pulse zelf) of PagerDuty voor on-call |
+
+### Minimale productie-setup (lage kosten)
+
+1. **UptimeRobot** (gratis) — ping `https://pulse.wnkdata.nl/api/health` elke 5 minuten, alert bij downtime
+2. **Healthchecks.io** (gratis tier) — scheduler stuurt na elke cyclus `GET https://hc-ping.com/{uuid}`; alert als 10+ minuten uitblijft
+3. **Sentry** (gratis tier) — Python SDK in backend + scheduler; vangt alle exceptions
+4. **PM2** — process manager herstart processen automatisch; `pm2 monit` voor live status
+
+### `/api/health` endpoint
+
+Nog te implementeren. Moet retourneren:
+
+```json
+{
+  "status": "ok",
+  "db": "connected",
+  "scheduler_last_run": "2026-03-10T21:26:00Z",
+  "scheduler_late": false
+}
+```
+
+`scheduler_late = true` als de laatste sync-cyclus meer dan 2× het verwachte interval geleden was. Dit signaleert een vastgelopen scheduler zonder dat een externe monitor de interne werking hoeft te kennen.
+
+### Fase-indeling
+
+- **Nu (voor eerste klant):** UptimeRobot + Healthchecks.io + `/api/health` endpoint — 2–4 uur werk
+- **Bij 5+ klanten:** Sentry toevoegen voor error tracking
+- **Bij 20+ klanten:** Grafana + Prometheus voor resource trending; PM2 Plus of Datadog voor process alerting

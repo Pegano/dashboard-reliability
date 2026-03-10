@@ -50,6 +50,8 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
     dataset.name = ds["name"]
     dataset.web_url = ds.get("webUrl")
     dataset.synced_at = datetime.datetime.utcnow()
+    db.merge(dataset)
+    db.flush()  # ensure dataset exists before inserting related rows
 
     # Refresh history ophalen
     try:
@@ -134,8 +136,6 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
     except Exception as e:
         logger.warning(f"Refresh schedule ophalen mislukt voor dataset {ds['id']}: {e}")
 
-    db.merge(dataset)
-
     # Schema ophalen via COLUMNSTATISTICS()
     try:
         columns = get_model_columns(workspace_id, ds["id"])
@@ -153,12 +153,32 @@ def _sync_schema(db: Session, dataset_id: str, columns: list[dict]) -> None:
         col_id = f"{dataset_id}/{col['table_name']}/{col['column_name']}"
         seen_ids.add(col_id)
 
-        column = db.get(DatasetColumn, col_id) or DatasetColumn(
-            id=col_id,
-            dataset_id=dataset_id,
-            table_name=col["table_name"],
-            column_name=col["column_name"],
-        )
+        existing_col = db.get(DatasetColumn, col_id)
+        new_type = col.get("data_type")
+
+        if existing_col is None:
+            column = DatasetColumn(
+                id=col_id,
+                dataset_id=dataset_id,
+                table_name=col["table_name"],
+                column_name=col["column_name"],
+                data_type=new_type,
+            )
+        else:
+            column = existing_col
+            if new_type and column.data_type and new_type != column.data_type:
+                # Type is gewijzigd — onthoud het vorige type
+                logger.warning(f"Data type change: {col_id} — {column.data_type} → {new_type}")
+                column.previous_data_type = column.data_type
+                column.data_type = new_type
+            elif new_type and column.previous_data_type and new_type == column.previous_data_type:
+                # Type is teruggezet naar origineel — wis de type-change markering
+                logger.info(f"Data type hersteld: {col_id} — terug naar {new_type}")
+                column.previous_data_type = None
+                column.data_type = new_type
+            elif new_type:
+                column.data_type = new_type
+
         column.is_active = True
         column.last_seen_at = datetime.datetime.utcnow()
         if col.get("cardinality") is not None:

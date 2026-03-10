@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # Scheduler
     poll_interval_minutes: int = 5
 
+    # Operational monitoring
+    healthchecks_ping_url: str = ""  # e.g. https://hc-ping.com/{uuid} — ping after each successful sync cycle
+
     # Alerts
     resend_api_key: str = ""
     alert_email_to: str = ""

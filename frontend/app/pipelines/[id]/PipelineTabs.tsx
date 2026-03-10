@@ -128,9 +128,7 @@ export default function PipelineTabs({ dataset, health, activeIncidents, allInci
                     <td className="px-4 py-4" style={{ color: "var(--text-muted)" }}>
                       {run.status === "failed" && run.error_description ? (
                         <span className="text-xs" style={{ color: "var(--red)" }}>
-                          {run.error_description.length > 80
-                            ? run.error_description.slice(0, 80) + "…"
-                            : run.error_description}
+                          {(() => { const clean = run.error_description.replace(/<\/?oii>/g, ""); return clean.length > 80 ? clean.slice(0, 80) + "…" : clean; })()}
                         </span>
                       ) : (
                         "—"
@@ -665,8 +663,32 @@ function FixTab({ activeIncidents, health, runs, focusIncidentId }: { activeInci
               </span>
             </div>
 
-            {/* Where in the data chain */}
-            {datasources.length > 0 && (
+            {/* Schema change: show removed columns + solution */}
+            {incident.type === "schema_change" && incident.detail && (
+              <div>
+                <p className="text-xs font-medium mb-2 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  Removed columns
+                </p>
+                <div className="space-y-1">
+                  {incident.detail.replace("Removed columns: ", "").split(", ").map((col) => (
+                    <div key={col} className="flex items-center gap-2 text-sm font-mono" style={{ color: "var(--text)" }}>
+                      <span style={{ color: "var(--red)", fontSize: 11 }}>−</span>
+                      <span>{col}</span>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="rounded-md px-4 py-3 mt-3 border-l-2 text-sm"
+                  style={{ background: "rgba(242,73,92,0.05)", borderColor: "var(--red)", color: "var(--text-muted)" }}
+                >
+                  <span className="font-medium" style={{ color: "var(--red)" }}>Solution direction</span>
+                  <p className="mt-1">Restore the removed column(s) in Power BI Desktop and republish the model, or update all reports and measures that reference these columns.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Where in the data chain (non-schema_change) */}
+            {incident.type !== "schema_change" && datasources.length > 0 && (
               <div>
                 <p className="text-xs font-medium mb-2 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                   Data chain

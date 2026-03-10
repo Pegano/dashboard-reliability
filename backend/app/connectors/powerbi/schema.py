@@ -71,11 +71,15 @@ def get_model_columns(workspace_id: str, dataset_id: str) -> list[dict]:
         if column.startswith("RowNumber-"):
             continue
 
+        min_val = row.get("[Min]")
+        data_type = type(min_val).__name__ if min_val is not None else None
+
         result.append({
             "table_name": table,
             "column_name": column,
             "cardinality": row.get("[Cardinality]"),
-            "min_value": str(row["[Min]"]) if row.get("[Min]") is not None else None,
+            "data_type": data_type,
+            "min_value": str(min_val) if min_val is not None else None,
             "max_value": str(row["[Max]"]) if row.get("[Max]") is not None else None,
         })
 

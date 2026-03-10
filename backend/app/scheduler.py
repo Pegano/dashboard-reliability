@@ -5,6 +5,7 @@ Start met: python -m app.scheduler
 
 import logging
 import time
+import urllib.request
 from apscheduler.schedulers.blocking import BlockingScheduler
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -28,8 +29,20 @@ def poll_job():
         if incidents:
             logger.info(f"{len(incidents)} incident(en) gedetecteerd")
             send_alerts_for_incidents(db, incidents)
+        # Heartbeat — signals successful cycle to dead-man's-switch monitor
+        if settings.healthchecks_ping_url:
+            try:
+                urllib.request.urlopen(settings.healthchecks_ping_url, timeout=5)
+            except Exception:
+                pass  # never let a monitoring ping failure break the scheduler
     except Exception as e:
         logger.error(f"Poll cyclus mislukt: {e}", exc_info=True)
+        # Signal failure to monitor
+        if settings.healthchecks_ping_url:
+            try:
+                urllib.request.urlopen(settings.healthchecks_ping_url + "/fail", timeout=5)
+            except Exception:
+                pass
     finally:
         db.close()
 

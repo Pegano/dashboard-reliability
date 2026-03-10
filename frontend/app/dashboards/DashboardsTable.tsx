@@ -2,62 +2,61 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Dataset, Incident, HealthStatus, Workspace } from "@/lib/types";
+import { Report, Incident, HealthStatus } from "@/lib/types";
 import StatusDot from "@/components/StatusDot";
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return "Never";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+interface Row {
+  report: Report;
+  status: HealthStatus;
+  activeIncidents: number;
+  datasetName: string;
+  workspaceName: string;
 }
 
-type Row = Dataset & { status: HealthStatus; activeIncidents: number };
-type SortKey = "status" | "name" | "workspace" | "last_refresh" | "incidents";
-type SortDir = "asc" | "desc";
+interface Props {
+  rows: Row[];
+  counts: Record<HealthStatus, number>;
+  workspaceMap: Record<string, string>;
+}
 
+const statusLabel: Record<HealthStatus, string> = {
+  green: "Healthy",
+  yellow: "Degraded",
+  red: "Critical",
+};
+
+type SortKey = "status" | "name" | "model" | "workspace" | "incidents";
+type SortDir = "asc" | "desc";
 const statusOrder: Record<HealthStatus, number> = { red: 0, yellow: 1, green: 2 };
 
-function sortRows(rows: Row[], key: SortKey, dir: SortDir, workspaceMap: Record<string, string>): Row[] {
+function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
   return [...rows].sort((a, b) => {
     let cmp = 0;
     if (key === "status") cmp = statusOrder[a.status] - statusOrder[b.status];
-    else if (key === "name") cmp = a.name.localeCompare(b.name);
-    else if (key === "workspace") cmp = (workspaceMap[a.workspace_id] ?? "").localeCompare(workspaceMap[b.workspace_id] ?? "");
-    else if (key === "last_refresh") cmp = (a.last_refresh_at ?? "").localeCompare(b.last_refresh_at ?? "");
+    else if (key === "name") cmp = a.report.name.localeCompare(b.report.name);
+    else if (key === "model") cmp = a.datasetName.localeCompare(b.datasetName);
+    else if (key === "workspace") cmp = a.workspaceName.localeCompare(b.workspaceName);
     else if (key === "incidents") cmp = a.activeIncidents - b.activeIncidents;
     return dir === "asc" ? cmp : -cmp;
   });
 }
 
-export default function ModelsTable({
-  rows,
-  counts,
-  workspaceMap,
-}: {
-  rows: Row[];
-  counts: Record<HealthStatus, number>;
-  workspaceMap: Record<string, string>;
-}) {
+export default function DashboardsTable({ rows, counts, workspaceMap }: Props) {
   const [filter, setFilter] = useState<HealthStatus | null>(null);
   const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  // Derive unique workspaces from rows
-  const workspaceIds = Array.from(new Set(rows.map((r) => r.workspace_id)));
+  const workspaceIds = Array.from(new Set(rows.map((r) => r.report.workspace_id)));
   const showWorkspaceFilter = workspaceIds.length >= 2;
 
   const filtered = rows.filter((r) => {
     if (filter && r.status !== filter) return false;
-    if (workspaceFilter && r.workspace_id !== workspaceFilter) return false;
+    if (workspaceFilter && r.report.workspace_id !== workspaceFilter) return false;
     return true;
   });
 
-  const visible = sortRows(filtered, sortKey, sortDir, workspaceMap);
+  const visible = sortRows(filtered, sortKey, sortDir);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -68,16 +67,6 @@ export default function ModelsTable({
     if (sortKey !== col) return <span style={{ opacity: 0.25 }}> ↕</span>;
     return <span> {sortDir === "asc" ? "↑" : "↓"}</span>;
   }
-
-  function toggleFilter(status: HealthStatus) {
-    setFilter((f) => (f === status ? null : status));
-  }
-
-  const statusLabel: Record<HealthStatus, string> = {
-    green: "Healthy",
-    yellow: "Degraded",
-    red: "Critical",
-  };
 
   return (
     <>
@@ -110,11 +99,13 @@ export default function ModelsTable({
           ))}
         </div>
       )}
+
+      {/* Status tiles — identical to ModelsTable */}
       <div className="flex gap-4 mb-8">
         {(["green", "yellow", "red"] as HealthStatus[]).map((status) => (
           <button
             key={status}
-            onClick={() => toggleFilter(status)}
+            onClick={() => setFilter((f) => (f === status ? null : status))}
             className="flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors"
             style={{
               background: filter === status ? "var(--surface-hover, var(--surface))" : "var(--surface)",
@@ -139,10 +130,10 @@ export default function ModelsTable({
             <tr className="border-b text-left" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
               {([
                 { key: "status", label: "Status" },
-                { key: "name", label: "Model" },
-                { key: "workspace", label: "Workspace" },
-                { key: "last_refresh", label: "Last refresh" },
-                { key: "incidents", label: "Incidents" },
+                { key: "name", label: "Dashboard" },
+                { key: "model", label: "Model" },
+                ...(showWorkspaceFilter ? [{ key: "workspace", label: "Workspace" }] : []),
+                { key: "incidents", label: "Issues" },
               ] as { key: SortKey; label: string }[]).map(({ key, label }) => (
                 <th
                   key={key}
@@ -153,48 +144,66 @@ export default function ModelsTable({
                   {label}<SortIndicator col={key} />
                 </th>
               ))}
+              <th className="px-4 py-3 font-medium" style={{ color: "var(--text-muted)" }}></th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((row) => (
+            {visible.map((r) => (
               <tr
-                key={row.id}
+                key={r.report.id}
                 className="border-b transition-opacity hover:opacity-80"
                 style={{ borderColor: "var(--border)", background: "var(--bg)" }}
               >
                 <td className="px-4 py-4">
-                  <StatusDot status={row.status} showLabel size="sm" />
+                  <StatusDot status={r.status} showLabel size="sm" />
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-4 py-4 font-medium" style={{ color: "var(--text)" }}>
+                  {r.report.name}
+                </td>
+                <td className="px-4 py-4 text-sm">
                   <Link
-                    href={`/pipelines/${row.id}`}
-                    className="font-medium hover:underline"
+                    href={`/pipelines/${r.report.dataset_id}`}
+                    className="hover:underline"
                     style={{ color: "var(--teal)" }}
                   >
-                    {row.name}
+                    {r.datasetName}
                   </Link>
                 </td>
-                <td className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
-                  {workspaceMap[row.workspace_id] ?? "—"}
-                </td>
-                <td className="px-4 py-4" style={{ color: "var(--text-muted)" }} suppressHydrationWarning>
-                  {timeAgo(row.last_refresh_at)}
-                </td>
+                {showWorkspaceFilter && (
+                  <td className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
+                    {r.workspaceName}
+                  </td>
+                )}
                 <td className="px-4 py-4">
-                  {row.activeIncidents > 0 ? (
+                  {r.activeIncidents > 0 ? (
                     <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: "rgba(242,73,92,0.15)", color: "var(--red)" }}>
-                      {row.activeIncidents} active
+                      {r.activeIncidents} active
                     </span>
                   ) : (
                     <span style={{ color: "var(--text-muted)" }}>—</span>
+                  )}
+                </td>
+                <td className="px-4 py-4 text-right">
+                  {r.report.web_url ? (
+                    <a
+                      href={r.report.web_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs hover:opacity-70"
+                      style={{ color: "var(--teal)" }}
+                    >
+                      Open ↗
+                    </a>
+                  ) : (
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
                   )}
                 </td>
               </tr>
             ))}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>
-                  No models found.
+                <td colSpan={6} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>
+                  No dashboards found.
                 </td>
               </tr>
             )}

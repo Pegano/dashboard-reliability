@@ -1,12 +1,13 @@
-import { fetchEnvironment, fetchWorkspaces } from "@/lib/api";
+import { fetchEnvironment, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import AutoRefresh from "@/app/AutoRefresh";
 import RefreshIndicator from "@/app/RefreshIndicator";
 import EnvironmentCharts from "./EnvironmentCharts";
 
 export default async function EnvironmentPage() {
-  const [env, workspaces] = await Promise.all([
+  const [env, workspaces, syncStatus] = await Promise.all([
     fetchEnvironment(),
     fetchWorkspaces(),
+    fetchSyncStatus(),
   ]);
 
   const workspaceMap = Object.fromEntries(
@@ -25,7 +26,7 @@ export default async function EnvironmentPage() {
             Overview of your Power BI environment
           </p>
         </div>
-        <RefreshIndicator />
+        <RefreshIndicator lastSyncedAt={syncStatus.last_synced_at} />
       </div>
 
       <EnvironmentCharts env={env} workspaceMap={workspaceMap} />

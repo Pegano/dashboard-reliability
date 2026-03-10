@@ -12,6 +12,7 @@ class DatasetColumn(Base):
     table_name = Column(String, nullable=False)
     column_name = Column(String, nullable=False)
     data_type = Column(String, nullable=True)
+    previous_data_type = Column(String, nullable=True)  # ingevuld bij type-wijziging
     cardinality = Column(BigInteger, nullable=True)  # aantal unieke waarden
     is_active = Column(Boolean, default=True)  # False = kolom verdwenen
     first_seen_at = Column(DateTime, default=datetime.datetime.utcnow)

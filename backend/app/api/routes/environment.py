@@ -12,6 +12,14 @@ from app.models.schema import DatasetSnapshot
 router = APIRouter()
 
 
+@router.get("/sync-status")
+def get_sync_status(db: Session = Depends(get_db)):
+    latest = db.query(func.max(Dataset.synced_at)).scalar()
+    # Voeg Z toe zodat de browser het correct als UTC parseert
+    ts = latest.strftime("%Y-%m-%dT%H:%M:%SZ") if latest else None
+    return {"last_synced_at": ts}
+
+
 @router.get("/")
 def get_environment(db: Session = Depends(get_db)):
     datasets = db.query(Dataset).all()
@@ -62,13 +70,15 @@ def get_environment(db: Session = Depends(get_db)):
         day = snap.synced_at.strftime("%Y-%m-%d")
         dataset_volume[snap.dataset_id][day] = snap.row_count_estimate
 
-    # Dataset naam map
+    # Dataset naam + workspace map
     name_map = {d.id: d.name for d in datasets}
+    workspace_map_ds = {d.id: d.workspace_id for d in datasets}
 
     volume_series = [
         {
             "dataset_id": ds_id,
             "name": name_map.get(ds_id, ds_id),
+            "workspace_id": workspace_map_ds.get(ds_id),
             "points": [
                 {"day": day, "value": val}
                 for day, val in sorted(days.items())

@@ -71,3 +71,9 @@ export async function fetchEnvironment() {
   if (!res.ok) throw new Error("Failed to fetch environment");
   return res.json();
 }
+
+export async function fetchSyncStatus() {
+  const res = await fetch(`${API_BASE}/api/environment/sync-status`, NO_CACHE);
+  if (!res.ok) return { last_synced_at: null };
+  return res.json();
+}

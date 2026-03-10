@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Incident, Dataset, Workspace } from "@/lib/types";
 import SeverityBadge from "@/components/SeverityBadge";
+import { suppressIncident } from "@/lib/api";
 
 const incidentTypeLabel: Record<string, string> = {
   refresh_failed: "Refresh failed",
@@ -110,8 +112,30 @@ export default function IssuesTable({
     { key: "root_cause", label: "Root cause" },
     { key: "impact", label: "Impact" },
   ];
+  const colSpan = columns.length + 1; // +1 for suppress/action column
 
-  function TableBody({ rows }: { rows: Row[] }) {
+  function SuppressButton({ incident }: { incident: Incident }) {
+    const router = useRouter();
+    const [isPending, startTransition] = useTransition();
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          startTransition(async () => {
+            await suppressIncident(incident.id, 24);
+            router.refresh();
+          });
+        }}
+        disabled={isPending}
+        className="text-xs px-2 py-1 rounded border transition-opacity hover:opacity-70"
+        style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "transparent" }}
+      >
+        Suppress 24h
+      </button>
+    );
+  }
+
+  function TableBody({ rows, showSuppress = false }: { rows: Row[]; showSuppress?: boolean }) {
     return (
       <>
         {rows.map(({ incident, datasetName, workspaceName }) => (
@@ -142,6 +166,9 @@ export default function IssuesTable({
             <td className="px-4 py-4" style={{ color: "var(--text-muted)" }}>
               {(incident.affected_reports ?? 0) > 0 ? `${incident.affected_reports} report${incident.affected_reports === 1 ? "" : "s"}` : "—"}
             </td>
+            <td className="px-4 py-4">
+              {showSuppress && <SuppressButton incident={incident} />}
+            </td>
           </tr>
         ))}
       </>
@@ -169,6 +196,7 @@ export default function IssuesTable({
                 {label}<SortIndicator col={key} />
               </th>
             ))}
+            <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody>
@@ -179,11 +207,11 @@ export default function IssuesTable({
                 style={{ background: "var(--surface)" }}
                 onClick={() => setActiveOpen((v) => !v)}
               >
-                <td colSpan={8} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                <td colSpan={colSpan} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                   {activeOpen ? "▾" : "▸"} Active ({activeRows.length})
                 </td>
               </tr>
-              {activeOpen && <TableBody rows={activeRows} />}
+              {activeOpen && <TableBody rows={activeRows} showSuppress />}
             </>
           )}
 
@@ -194,7 +222,7 @@ export default function IssuesTable({
                 style={{ background: "var(--surface)" }}
                 onClick={() => setResolvedOpen((v) => !v)}
               >
-                <td colSpan={8} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                <td colSpan={colSpan} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                   {resolvedOpen ? "▾" : "▸"} Resolved ({resolvedRows.length})
                 </td>
               </tr>
