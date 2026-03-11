@@ -22,6 +22,7 @@ class Dataset(Base):
     synced_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     web_url = Column(String, nullable=True)  # Power BI / Fabric direct link
+    modified_at = Column(DateTime, nullable=True)  # Power BI modifiedDateTime (updated on publish + refresh)
 
     # Datasource info (populated during sync)
     datasources = Column(JSON, nullable=True)          # list of {type, connection, gatewayId}

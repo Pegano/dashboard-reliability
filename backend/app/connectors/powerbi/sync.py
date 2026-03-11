@@ -50,6 +50,19 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
     dataset.name = ds["name"]
     dataset.web_url = ds.get("webUrl")
     dataset.synced_at = datetime.datetime.utcnow()
+
+    # modifiedDateTime bijhouden voor desktop publish detectie
+    prev_modified_at = dataset.modified_at
+    new_modified_at = None
+    if ds.get("modifiedDateTime"):
+        try:
+            new_modified_at = datetime.datetime.fromisoformat(
+                ds["modifiedDateTime"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+        except Exception:
+            pass
+    dataset.modified_at = new_modified_at
+
     db.merge(dataset)
     db.flush()  # ensure dataset exists before inserting related rows
 
@@ -114,6 +127,32 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
 
     except Exception as e:
         logger.warning(f"Refresh history ophalen mislukt voor dataset {ds['id']}: {e}")
+
+    # Desktop publish detectie
+    # Als modifiedDateTime nieuwer is dan vorige waarde én er is geen refresh run gestart
+    # na de vorige modifiedDateTime → maak synthetische run aan met refresh_type=publish
+    if (
+        new_modified_at is not None
+        and prev_modified_at is not None
+        and new_modified_at > prev_modified_at
+    ):
+        existing_run = db.query(RefreshRun).filter(
+            RefreshRun.dataset_id == ds["id"],
+            RefreshRun.started_at >= prev_modified_at,
+        ).first()
+        if not existing_run:
+            synthetic_id = f"{ds['id']}_publish_{new_modified_at.strftime('%Y%m%dT%H%M%S')}"
+            if not db.get(RefreshRun, synthetic_id):
+                synthetic_run = RefreshRun(
+                    id=synthetic_id,
+                    dataset_id=ds["id"],
+                    status=RunStatus.completed,
+                    refresh_type="publish",
+                    started_at=new_modified_at,
+                    ended_at=new_modified_at,
+                )
+                db.add(synthetic_run)
+                logger.info(f"Desktop publish gedetecteerd voor dataset {ds['id']} op {new_modified_at}")
 
     # Datasources en refresh schedule ophalen
     try:
