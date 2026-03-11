@@ -1,6 +1,6 @@
 import { fetchEnvironment, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
-import AutoRefresh from "@/app/AutoRefresh";
-import RefreshIndicator from "@/app/RefreshIndicator";
+import AutoRefresh from "../AutoRefresh";
+import RefreshIndicator from "../RefreshIndicator";
 import EnvironmentCharts from "./EnvironmentCharts";
 
 export default async function EnvironmentPage() {

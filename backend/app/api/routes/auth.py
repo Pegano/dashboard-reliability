@@ -104,7 +104,7 @@ def _send_magic_link_email(email: str, magic_url: str):
     resend.api_key = settings.resend_api_key
     try:
         resend.Emails.send({
-            "from": settings.get_alert_email_from(),
+            "from": settings.get_auth_email_from(),
             "to": email,
             "subject": "Your Pulse login link",
             "html": f"""

@@ -37,6 +37,9 @@ class Settings(BaseSettings):
             return self.alert_email_from
         return f"Pulse Alerts <alerts@{self.app_domain}>"
 
+    def get_auth_email_from(self) -> str:
+        return f"Pulse <noreply@{self.app_domain}>"
+
     class Config:
         env_file = ".env"
 

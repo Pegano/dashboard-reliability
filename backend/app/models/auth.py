@@ -1,7 +1,7 @@
 import datetime
 import enum
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Boolean
+from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Boolean, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -18,6 +18,12 @@ class Tenant(Base):
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False, unique=True)  # used in URLs
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Power BI credentials (TODO: encrypt with Fernet)
+    pbi_tenant_id = Column(String, nullable=True)
+    pbi_client_id = Column(String, nullable=True)
+    pbi_client_secret = Column(String, nullable=True)
+    monitored_workspace_ids = Column(JSON, nullable=True)  # list of workspace IDs
 
     users = relationship("TenantUser", back_populates="tenant")
 
