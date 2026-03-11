@@ -140,17 +140,17 @@ Target flow: Signup → Connect Power BI → Select workspaces → Live → Dash
 Implementation plan (10–14 days, revised based on architecture review):
 
 **Step 1 — Auth (2 days)**
-- [ ] `users` + `tenants` + `tenant_users` + `auth_tokens` DB models
-- [ ] Magic link login (`/login`, `/auth/verify`) — no password for MVP
-- [ ] JWT session cookie, 24h expiry for security
-- [ ] Next.js middleware — protect all routes, redirect to `/login`
+- [x] `users` + `tenants` + `tenant_users` + `auth_tokens` DB models
+- [x] Magic link login (`/login`, `/auth/verify`) — no password for MVP
+- [x] JWT session cookie, 24h expiry for security
+- [x] Next.js middleware — protect all routes, redirect to `/login`
 - [ ] `tenant.slug` for clean URLs (`pulse.wnkdata.nl/acme/...`)
 
 **Step 2 — Power BI connection wizard (3 days)**
 - [ ] **Delegated login first** (Microsoft OAuth) — lowest friction, no Azure app setup required
 - [ ] **Service principal as second option** — for organisations; step-by-step instructions inline
-- [ ] Connection test endpoint — verify credentials, return workspace list
-- [ ] Workspace selection UI — checkboxes, dev/test first recommendation
+- [x] Connection test endpoint — verify credentials, return workspace list
+- [x] Workspace selection UI — checkboxes, dev/test first recommendation
 - [ ] Credentials stored encrypted (Fernet/AES), encryption key in environment variable
 
 **Step 3 — Tenant-aware monitoring (3 days)**
@@ -161,7 +161,7 @@ Implementation plan (10–14 days, revised based on architecture review):
 **Step 4 — Post-onboarding experience (2 days)**
 - [ ] "You're live" screen — "Pulse is monitoring X models" + last sync time
 - [ ] **Test alert sent after onboarding** — email/webhook to confirm monitoring is working
-- [ ] Invite flow — admin invites colleagues via email, role-based (admin/viewer)
+- [x] Invite flow — admin invites colleagues via email, role-based (admin/viewer); team management in Settings (list members, revoke invites, remove members)
 - [ ] Role-based redirect: viewer → Dashboards tab, admin → Models tab
 
 **Step 5 — Later**

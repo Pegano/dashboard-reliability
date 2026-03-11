@@ -20,6 +20,7 @@ SESSION_EXPIRY_HOURS = 24
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    next: str | None = None
 
 
 @router.post("/request")
@@ -45,7 +46,8 @@ def request_magic_link(body: LoginRequest):
         db.commit()
 
         # Stuur magic link via Resend
-        magic_url = f"{settings.app_url}/auth/verify?token={token}"
+        next_param = f"&next={body.next}" if body.next else ""
+        magic_url = f"{settings.app_url}/auth/verify?token={token}{next_param}"
         _send_magic_link_email(body.email, magic_url)
 
         return {"ok": True}
@@ -54,7 +56,7 @@ def request_magic_link(body: LoginRequest):
 
 
 @router.get("/verify")
-def verify_magic_link(token: str, response: Response):
+def verify_magic_link(token: str, next: str | None = None, response: Response = None):
     """Verifieer een magic link token en maak een sessie aan."""
     db: Session = SessionLocal()
     try:
@@ -69,9 +71,12 @@ def verify_magic_link(token: str, response: Response):
 
         user = auth_token.user
 
-        # Bepaal redirect: heeft de user al een tenant?
-        tenant_user = db.query(TenantUser).filter(TenantUser.user_id == user.id).first()
-        redirect_path = "/onboarding" if not tenant_user else "/"
+        # Bepaal redirect: next param > onboarding check > home
+        if next and next.startswith("/"):
+            redirect_path = next
+        else:
+            tenant_user = db.query(TenantUser).filter(TenantUser.user_id == user.id).first()
+            redirect_path = "/onboarding" if not tenant_user else "/"
 
         # Maak JWT sessie cookie
         jwt_token = create_session_token(user_id=user.id)

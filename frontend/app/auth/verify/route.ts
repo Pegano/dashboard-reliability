@@ -8,14 +8,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=missing_token", request.url));
   }
 
-  // Forward to backend — backend sets cookie and redirects
-  const backendUrl = `${API_BASE}/api/auth/verify?token=${token}`;
+  const next = request.nextUrl.searchParams.get("next");
+  const nextParam = next ? `&next=${encodeURIComponent(next)}` : "";
+  const backendUrl = `${API_BASE}/api/auth/verify?token=${token}${nextParam}`;
   const res = await fetch(backendUrl, { redirect: "manual" });
 
   if (res.status === 302) {
-    const location = res.headers.get("location");
+    const location = res.headers.get("location") || "/";
     const setCookie = res.headers.get("set-cookie");
-    const response = NextResponse.redirect(location || "/", { status: 302 });
+
+    // Extract path+search from backend redirect URL (may be absolute to backend host)
+    let redirectPath: string;
+    try {
+      const u = new URL(location);
+      redirectPath = u.pathname + u.search;
+    } catch {
+      redirectPath = location;
+    }
+
+    const response = NextResponse.redirect(new URL(redirectPath, request.url));
     if (setCookie) {
       response.headers.set("set-cookie", setCookie);
     }

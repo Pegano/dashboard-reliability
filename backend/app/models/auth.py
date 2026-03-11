@@ -66,3 +66,20 @@ class AuthToken(Base):
     @property
     def is_valid(self) -> bool:
         return self.used_at is None and self.expires_at > datetime.datetime.utcnow()
+
+
+class TenantInvite(Base):
+    __tablename__ = "tenant_invites"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    email = Column(String, nullable=False)
+    token = Column(String, nullable=False, unique=True)
+    role = Column(Enum(UserRole), default=UserRole.viewer)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+
+    @property
+    def is_valid(self) -> bool:
+        return self.accepted_at is None and self.expires_at > datetime.datetime.utcnow()
