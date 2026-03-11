@@ -82,6 +82,8 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 - [ ] **Improved Analysis tab** — trend charts, failure frequency, duration over time (replaces current placeholder)
 - [ ] **Improved Fix tab** — context-aware suggestions using Claude API (replaces rule-based placeholder)
 - [ ] **On-demand refresh trigger** — trigger a Power BI dataset refresh directly from Pulse via the REST API (`POST /datasets/{id}/refreshes`); useful when a fix has been applied and you want to verify immediately without waiting for the next scheduled refresh
+- [ ] **Duration scatter chart in Runs page** — per-model scatterplot (x = time, y = duration in seconds); dots colored by statistical distance from mean/median: blue = within 1–1.5σ, yellow = 1.5–2.5σ, red = outlier (>2.5σ); requires min ~10 runs per model for meaningful baseline. Render only when sufficient data available.
+- [ ] **Performance per datasource** — aggregate run duration and failure rate per datasource type (PostgreSQL, File, etc.) and per server/connection; shows which data sources are slowest or most error-prone; data already available (datasources JSONB + run history); candidate for Admin or Environment page.
 
 ---
 

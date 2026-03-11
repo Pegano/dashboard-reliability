@@ -18,6 +18,7 @@ class RefreshRun(Base):
     id = Column(String, primary_key=True)  # Power BI requestId or generated
     dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
     status = Column(Enum(RunStatus), default=RunStatus.unknown)
+    refresh_type = Column(String, nullable=True)  # scheduled, onDemand, viaApi, viaEnhancedApi, viaXmlaEndpoint
     started_at = Column(DateTime, nullable=True)
     ended_at = Column(DateTime, nullable=True)
     error_code = Column(String, nullable=True)

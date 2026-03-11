@@ -105,6 +105,7 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
                 run = db.get(RefreshRun, run_id) or RefreshRun(id=run_id)
                 run.dataset_id = ds["id"]
                 run.status = run_status
+                run.refresh_type = entry.get("refreshType")
                 run.started_at = started_at
                 run.ended_at = ended_at
                 run.error_code = error_code

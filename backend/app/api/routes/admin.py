@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import text
+from sqlalchemy import text, func
 from app.core.database import SessionLocal
 from app.models.refresh_run import RefreshRun, RunStatus
 from app.models.dataset import Dataset
+from app.models.workspace import Workspace
 
 import os
 
@@ -43,27 +44,28 @@ def get_table_data(table_name: str):
 def get_last_run():
     db = SessionLocal()
     try:
-        # Zoek Orderoverzicht dataset in acc workspace
-        ds = db.query(Dataset).join(Dataset.workspace).filter(
-            Dataset.name == "Orderoverzicht"
-        ).first()
-        if not ds:
-            return {"last_run": None}
+        # Last Pulse sync = meest recente synced_at over alle datasets
+        last_synced_at = db.query(func.max(Dataset.synced_at)).scalar()
 
-        run = db.query(RefreshRun).filter(
-            RefreshRun.dataset_id == ds.id
-        ).order_by(RefreshRun.ended_at.desc()).first()
-
-        if not run:
-            return {"last_run": None}
+        # Laatste PBI refresh per dataset
+        datasets = db.query(Dataset, Workspace.name).join(Workspace).order_by(Workspace.name, Dataset.name).all()
+        model_refreshes = []
+        for ds, ws_name in datasets:
+            run = db.query(RefreshRun).filter(
+                RefreshRun.dataset_id == ds.id,
+                RefreshRun.ended_at.isnot(None),
+            ).order_by(RefreshRun.ended_at.desc()).first()
+            model_refreshes.append({
+                "dataset_id": ds.id,
+                "name": ds.name,
+                "workspace": ws_name,
+                "last_refresh_at": run.ended_at.strftime("%Y-%m-%dT%H:%M:%SZ") if run and run.ended_at else None,
+                "status": run.status.value if run and run.status else None,
+            })
 
         return {
-            "last_run": {
-                "ended_at": run.ended_at.strftime("%Y-%m-%dT%H:%M:%SZ") if run.ended_at else None,
-                "started_at": run.started_at.strftime("%Y-%m-%dT%H:%M:%SZ") if run.started_at else None,
-                "status": run.status.value if run.status else None,
-                "error_code": run.error_code,
-            }
+            "last_synced_at": last_synced_at.strftime("%Y-%m-%dT%H:%M:%SZ") if last_synced_at else None,
+            "model_refreshes": model_refreshes,
         }
     finally:
         db.close()

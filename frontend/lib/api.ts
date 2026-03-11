@@ -60,8 +60,11 @@ export async function fetchReports(datasetId?: string) {
   return res.json();
 }
 
-export async function fetchRuns(datasetId: string) {
-  const res = await fetch(`${API_BASE}/api/runs/?dataset_id=${datasetId}`, NO_CACHE);
+export async function fetchRuns(datasetId?: string) {
+  const url = datasetId
+    ? `${API_BASE}/api/runs/?dataset_id=${datasetId}`
+    : `${API_BASE}/api/runs/`;
+  const res = await fetch(url, NO_CACHE);
   if (!res.ok) throw new Error("Failed to fetch runs");
   return res.json();
 }

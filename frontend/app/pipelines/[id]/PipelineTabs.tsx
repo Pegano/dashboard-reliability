@@ -26,6 +26,190 @@ const incidentTypeLabel: Record<string, string> = {
   dataset_growth: "Dataset growth",
 };
 
+function buildDurationPoints(runs: RefreshRun[]) {
+  return runs
+    .filter((r) => r.started_at && r.ended_at)
+    .map((r) => ({
+      id: r.id,
+      ms: new Date(r.ended_at!).getTime() - new Date(r.started_at!).getTime(),
+      status: r.status,
+      ts: new Date(r.ended_at!).getTime(),
+      label: new Date(r.ended_at!).toLocaleDateString("nl-NL", { day: "2-digit", month: "short" }),
+    }))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+function DurationChartModal({ runs, currentRunId, onClose }: { runs: RefreshRun[]; currentRunId: string; onClose: () => void }) {
+  const W = 720, H = 270, PAD_L = 48, PAD_R = 16, PAD_T = 16, PAD_B = 32;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+  const R = 4;
+
+  const pts = buildDurationPoints(runs);
+  if (pts.length < 2) return null;
+
+  const durations = pts.map((p) => p.ms);
+  const minMs = Math.min(...durations);
+  const maxMs = Math.max(...durations);
+  const range = maxMs - minMs || 1;
+  const avgMs = durations.reduce((a, b) => a + b, 0) / durations.length;
+
+  const n = pts.length;
+  const toX = (i: number) => PAD_L + (i / (n - 1)) * plotW;
+  const toY = (ms: number) => PAD_T + plotH - ((ms - minMs) / range) * plotH;
+  const avgY = toY(avgMs);
+
+  // X-axis labels: show ~5 evenly spaced dates
+  const labelIndices = [0, Math.round(n * 0.25), Math.round(n * 0.5), Math.round(n * 0.75), n - 1]
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+  // Y-axis ticks: min, avg, max
+  const yTicks = [
+    { ms: minMs, label: fmtMs(minMs) },
+    { ms: avgMs, label: fmtMs(avgMs) },
+    { ms: maxMs, label: fmtMs(maxMs) },
+  ];
+
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: "24px 28px",
+          width: W + 56,
+          boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Duration history</p>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 18, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        <svg width={W} height={H}>
+          {/* Y-axis ticks */}
+          {yTicks.map((t) => {
+            const y = toY(t.ms);
+            return (
+              <g key={t.label}>
+                <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth={1} />
+                <text x={PAD_L - 6} y={y + 4} fontSize={9} fill="var(--text-muted)" textAnchor="end">{t.label}</text>
+              </g>
+            );
+          })}
+
+          {/* Avg line */}
+          <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="4 3" />
+
+          {/* X-axis labels */}
+          {labelIndices.map((i) => (
+            <text key={i} x={toX(i)} y={H - 6} fontSize={9} fill="var(--text-muted)" textAnchor="middle">{pts[i].label}</text>
+          ))}
+
+          {/* Dots */}
+          {pts.map((p, i) => {
+            const isCurrent = p.id === currentRunId;
+            const isHovered = hovered === i;
+            return (
+              <circle
+                key={i}
+                cx={toX(i)}
+                cy={toY(p.ms)}
+                r={isCurrent ? R + 1.5 : isHovered ? R + 1 : R}
+                fill={
+                  isCurrent
+                    ? "var(--red)"
+                    : p.status === "completed"
+                    ? "var(--teal)"
+                    : p.status === "failed"
+                    ? "rgba(242,73,92,0.8)"
+                    : "var(--text-muted)"
+                }
+                opacity={isCurrent ? 1 : 0.6}
+                style={{ cursor: "default", transition: "r 0.1s" }}
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)}
+              />
+            );
+          })}
+
+          {/* Hover tooltip */}
+          {hovered !== null && (() => {
+            const p = pts[hovered];
+            const x = toX(hovered);
+            const y = toY(p.ms);
+            const tipX = x + 8 > W - 80 ? x - 90 : x + 8;
+            return (
+              <g>
+                <rect x={tipX} y={y - 22} width={82} height={18} rx={3} fill="var(--surface)" stroke="var(--border)" strokeWidth={1} />
+                <text x={tipX + 6} y={y - 9} fontSize={10} fill="var(--text)">{fmtMs(p.ms)} · {p.label}</text>
+              </g>
+            );
+          })()}
+        </svg>
+
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+          {[
+            { color: "var(--teal)", label: "Completed" },
+            { color: "var(--red)", label: "This run" },
+            { color: "rgba(242,73,92,0.8)", label: "Failed" },
+          ].map(({ color, label }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
+            <svg width={20} height={8}><line x1={0} y1={4} x2={20} y2={4} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="4 3" /></svg>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Average</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DurationWithChart({ runs, run }: { runs: RefreshRun[]; run: RefreshRun }) {
+  const [open, setOpen] = useState(false);
+  const pts = buildDurationPoints(runs);
+  const clickable = pts.length >= 2;
+  const label = formatDuration(run.started_at, run.ended_at);
+
+  return (
+    <>
+      <span
+        onClick={clickable ? () => setOpen(true) : undefined}
+        style={{
+          cursor: clickable ? "pointer" : "default",
+          textDecoration: clickable && label !== "—" ? "underline" : "none",
+          textDecorationColor: "rgba(255,255,255,0.25)",
+          textUnderlineOffset: 3,
+        }}
+      >
+        {label}
+      </span>
+      {open && <DurationChartModal runs={runs} currentRunId={run.id} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 function formatDuration(started_at: string | null, ended_at: string | null): string {
   if (!started_at || !ended_at) return "—";
   const diffMs = new Date(ended_at).getTime() - new Date(started_at).getTime();
@@ -104,7 +288,7 @@ export default function PipelineTabs({ dataset, health, activeIncidents, allInci
                       {formatDate(run.ended_at)}
                     </td>
                     <td className="px-4 py-4" style={{ color: "var(--text-muted)" }}>
-                      {formatDuration(run.started_at, run.ended_at)}
+                      <DurationWithChart runs={runs} run={run} />
                     </td>
                     <td className="px-4 py-4">
                       <span

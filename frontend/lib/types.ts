@@ -65,8 +65,14 @@ export interface RefreshRun {
   id: string;
   dataset_id: string;
   status: "completed" | "failed" | "unknown" | "disabled" | "cancelled";
+  refresh_type: string | null;
   started_at: string | null;
   ended_at: string | null;
   error_code: string | null;
   error_description: string | null;
+}
+
+export interface RefreshRunWithDataset extends RefreshRun {
+  dataset_name: string;
+  workspace_name: string;
 }

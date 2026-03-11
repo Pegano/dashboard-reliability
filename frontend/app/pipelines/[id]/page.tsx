@@ -48,7 +48,7 @@ export default async function PipelineDetailPage({
   const activeIncidents = incidents.filter((i) => i.status === "active");
   const status = deriveStatus(incidents);
 
-  const defaultTab = tab === "fix" ? "Fix" : tab === "issues" || activeIncidents.length > 0 ? "Issues" : "Runs";
+  const defaultTab = tab === "Runs" ? "Runs" : tab === "fix" ? "Fix" : tab === "issues" || activeIncidents.length > 0 ? "Issues" : "Runs";
 
   return (
     <div>
