@@ -7,7 +7,6 @@ Geen XMLA, geen Premium vereist — alleen de normale REST API.
 
 import logging
 import requests
-from app.connectors.powerbi.auth import get_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ SYSTEM_TABLE_PREFIXES = (
 )
 
 
-def get_model_columns(workspace_id: str, dataset_id: str) -> list[dict]:
+def get_model_columns(workspace_id: str, dataset_id: str, token: str) -> list[dict]:
     """
     Haal alle gebruikerstabellen en kolommen op via COLUMNSTATISTICS().
 
@@ -36,7 +35,6 @@ def get_model_columns(workspace_id: str, dataset_id: str) -> list[dict]:
 
     Returns [] als de dataset geen executeQueries ondersteunt (gateway-only, etc).
     """
-    token = get_access_token()
     try:
         r = requests.post(
             f"{BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries",

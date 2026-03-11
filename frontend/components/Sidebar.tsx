@@ -10,6 +10,7 @@ const nav = [
   { href: "/incidents", label: "Issues", icon: "⚠" },
   { href: "/environment", label: "Environment", icon: "◈" },
   { href: "/admin", label: "Admin", icon: "⚙" },
+  { href: "/settings", label: "Settings", icon: "◎" },
 ];
 
 export default function Sidebar() {

@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { fetchRuns, fetchSyncStatus, fetchIncidents } from "@/lib/api";
 import RunsTable from "./RunsTable";
 import AutoRefresh from "../AutoRefresh";
@@ -5,10 +6,11 @@ import RefreshIndicator from "../RefreshIndicator";
 import { Incident } from "@/lib/types";
 
 export default async function RunsPage() {
+  const session = (await cookies()).get("session")?.value;
   const [runs, syncStatus, incidents] = await Promise.all([
-    fetchRuns(),
-    fetchSyncStatus(),
-    fetchIncidents(),
+    fetchRuns(undefined, session),
+    fetchSyncStatus(session),
+    fetchIncidents(undefined, session),
   ]);
 
   const failed = runs.filter((r: { status: string }) => r.status === "failed").length;

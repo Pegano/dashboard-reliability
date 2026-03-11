@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { fetchIncidents, fetchDatasets, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import { Incident } from "@/lib/types";
 import IssuesTable from "./IssuesTable";
@@ -5,11 +6,12 @@ import AutoRefresh from "../AutoRefresh";
 import RefreshIndicator from "../RefreshIndicator";
 
 export default async function IncidentsPage() {
+  const session = (await cookies()).get("session")?.value;
   const [incidents, datasets, workspaces, syncStatus] = await Promise.all([
-    fetchIncidents(),
-    fetchDatasets(),
-    fetchWorkspaces(),
-    fetchSyncStatus(),
+    fetchIncidents(undefined, session),
+    fetchDatasets(undefined, session),
+    fetchWorkspaces(session),
+    fetchSyncStatus(session),
   ]);
 
   const active = incidents.filter((i: Incident) => i.status === "active").length;

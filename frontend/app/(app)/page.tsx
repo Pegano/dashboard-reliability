@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { fetchDatasets, fetchIncidents, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import { Dataset, Incident, HealthStatus, Workspace } from "@/lib/types";
 import ModelsTable from "./ModelsTable";
@@ -14,11 +15,12 @@ function deriveStatus(dataset: Dataset, incidents: Incident[]): HealthStatus {
 }
 
 export default async function PipelinesPage() {
+  const session = (await cookies()).get("session")?.value;
   const [datasets, incidents, workspaces, syncStatus] = await Promise.all([
-    fetchDatasets(),
-    fetchIncidents(),
-    fetchWorkspaces(),
-    fetchSyncStatus(),
+    fetchDatasets(undefined, session),
+    fetchIncidents(undefined, session),
+    fetchWorkspaces(session),
+    fetchSyncStatus(session),
   ]);
 
   const workspaceMap = Object.fromEntries(workspaces.map((w: Workspace) => [w.id, w.name]));

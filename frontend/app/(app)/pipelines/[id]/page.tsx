@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { fetchDatasets, fetchDatasetHealth, fetchIncidents, fetchReports, fetchRuns, fetchWorkspaces } from "@/lib/api";
 import { Dataset, DatasetHealth, Incident, Report, RefreshRun, HealthStatus, Workspace } from "@/lib/types";
 import StatusDot from "@/components/StatusDot";
@@ -26,16 +27,17 @@ export default async function PipelineDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string; incident?: string }>;
 }) {
+  const session = (await cookies()).get("session")?.value;
   const { id } = await params;
   const { tab, incident: focusIncidentId } = await searchParams;
 
   const [datasets, allIncidents, reports, runs, workspaces, health] = await Promise.all([
-    fetchDatasets(),
-    fetchIncidents(),
-    fetchReports(id),
-    fetchRuns(id),
-    fetchWorkspaces(),
-    fetchDatasetHealth(id),
+    fetchDatasets(undefined, session),
+    fetchIncidents(undefined, session),
+    fetchReports(id, session),
+    fetchRuns(id, session),
+    fetchWorkspaces(session),
+    fetchDatasetHealth(id, session),
   ]);
 
   const dataset: Dataset | undefined = datasets.find((d: Dataset) => d.id === id);

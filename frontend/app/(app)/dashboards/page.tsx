@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { fetchReports, fetchDatasets, fetchIncidents, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import { Report, Dataset, Incident, HealthStatus, Workspace } from "@/lib/types";
 import DashboardsTable from "./DashboardsTable";
@@ -12,12 +13,13 @@ function deriveStatus(datasetId: string, incidents: Incident[]): HealthStatus {
 }
 
 export default async function DashboardsPage() {
+  const session = (await cookies()).get("session")?.value;
   const [reports, datasets, incidents, workspaces, syncStatus] = await Promise.all([
-    fetchReports(),
-    fetchDatasets(),
-    fetchIncidents(),
-    fetchWorkspaces(),
-    fetchSyncStatus(),
+    fetchReports(undefined, session),
+    fetchDatasets(undefined, session),
+    fetchIncidents(undefined, session),
+    fetchWorkspaces(session),
+    fetchSyncStatus(session),
   ]);
 
   const datasetMap = Object.fromEntries(datasets.map((d: Dataset) => [d.id, d]));

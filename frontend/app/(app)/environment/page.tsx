@@ -1,13 +1,15 @@
+import { cookies } from "next/headers";
 import { fetchEnvironment, fetchWorkspaces, fetchSyncStatus } from "@/lib/api";
 import AutoRefresh from "../AutoRefresh";
 import RefreshIndicator from "../RefreshIndicator";
 import EnvironmentCharts from "./EnvironmentCharts";
 
 export default async function EnvironmentPage() {
+  const session = (await cookies()).get("session")?.value;
   const [env, workspaces, syncStatus] = await Promise.all([
-    fetchEnvironment(),
-    fetchWorkspaces(),
-    fetchSyncStatus(),
+    fetchEnvironment(session),
+    fetchWorkspaces(session),
+    fetchSyncStatus(session),
   ]);
 
   const workspaceMap = Object.fromEntries(
