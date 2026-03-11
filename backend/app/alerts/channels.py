@@ -28,7 +28,7 @@ def _build_message(incident: Incident, dataset_name: str) -> dict:
         "dataset_name": dataset_name,
         "root_cause": incident.root_cause_hint or "No hint available",
         "detail": incident.detail or "",
-        "incident_url": f"https://pulse.wnkdata.nl/pipelines/{incident.dataset_id}?tab=issues",
+        "incident_url": f"{settings.app_url}/pipelines/{incident.dataset_id}?tab=issues",
         "incident_id": incident.id[:8],
     }
 
@@ -67,7 +67,7 @@ def send_email(incident: Incident, dataset_name: str) -> bool:
 
     try:
         resend.Emails.send({
-            "from": "Pulse Alerts <alerts@pulse.wnkdata.nl>",
+            "from": settings.get_alert_email_from(),
             "to": [settings.alert_email_to],
             "subject": f"[{msg['severity']}] {msg['type_label']} — {msg['dataset_name']}",
             "html": html,

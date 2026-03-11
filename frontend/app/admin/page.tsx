@@ -3,7 +3,7 @@ import AdminTabs from "./AdminTabs";
 
 async function fetchAdminData() {
   try {
-    const res = await fetch("http://localhost:8000/api/admin/last-run", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/admin/last-run`, { cache: "no-store" });
     if (!res.ok) return { last_synced_at: null, model_refreshes: [] };
     return await res.json();
   } catch {

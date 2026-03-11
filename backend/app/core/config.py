@@ -16,13 +16,26 @@ class Settings(BaseSettings):
     # Operational monitoring
     healthchecks_ping_url: str = ""  # e.g. https://hc-ping.com/{uuid} — ping after each successful sync cycle
 
+    # App domain (used for alert URLs, CORS, email sender)
+    app_domain: str = "pulse.wnkdata.nl"
+    app_url: str = "https://pulse.wnkdata.nl"
+    cors_origin: str = "http://localhost:3000"
+
+    # Auth
+    jwt_secret: str = "change-me-in-production"  # override via JWT_SECRET in .env
+
     # Alerts
     resend_api_key: str = ""
     alert_email_to: str = ""
-    alert_email_from: str = "Pulse Alerts <alerts@pulse.wnkdata.nl>"
+    alert_email_from: str = ""  # defaults to "Pulse Alerts <alerts@{app_domain}>" if empty
     alert_webhook_url: str = ""  # Teams, Slack, of elke HTTP webhook
     alert_telegram_bot_token: str = ""
     alert_telegram_chat_id: str = ""
+
+    def get_alert_email_from(self) -> str:
+        if self.alert_email_from:
+            return self.alert_email_from
+        return f"Pulse Alerts <alerts@{self.app_domain}>"
 
     class Config:
         env_file = ".env"

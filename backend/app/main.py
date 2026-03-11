@@ -2,13 +2,14 @@ import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
-from app.api.routes import workspaces, datasets, incidents, reports, runs, environment, admin
+from app.api.routes import workspaces, datasets, incidents, reports, runs, environment, admin, auth
+from app.core.config import settings
 
 app = FastAPI(title="Dashboard Reliability API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[settings.cors_origin],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -20,6 +21,7 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(environment.router, prefix="/api/environment", tags=["environment"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 
 
 @app.get("/health")

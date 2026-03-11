@@ -134,11 +134,40 @@ The sidebar filter section is context-aware:
 - [ ] **Scalable workspace selector** — searchable dropdown for 10+ workspaces; shows label (dev/acc/prod) if set
 
 ### Onboarding and setup
-- [ ] **One-click Power BI connect** — OAuth delegated flow, no manual app registration
-- [ ] **Setup wizard** — guided UI for the service principal flow (interim)
-- [ ] **Multi-tenant infrastructure** — separate database per organisation (Scenario C); see deployment-architecture.md
-- [ ] **Self-serve onboarding** — sign up, connect, monitor in under 10 minutes
-- [ ] **Pricing and billing** — Level 1/2 base, Level 3 upsell
+
+Target flow: Signup → Connect Power BI → Select workspaces → Live → Dashboard (under 10 minutes, fully self-serve).
+
+Implementation plan (10–14 days, revised based on architecture review):
+
+**Step 1 — Auth (2 days)**
+- [ ] `users` + `tenants` + `tenant_users` + `auth_tokens` DB models
+- [ ] Magic link login (`/login`, `/auth/verify`) — no password for MVP
+- [ ] JWT session cookie, 24h expiry for security
+- [ ] Next.js middleware — protect all routes, redirect to `/login`
+- [ ] `tenant.slug` for clean URLs (`pulse.wnkdata.nl/acme/...`)
+
+**Step 2 — Power BI connection wizard (3 days)**
+- [ ] **Delegated login first** (Microsoft OAuth) — lowest friction, no Azure app setup required
+- [ ] **Service principal as second option** — for organisations; step-by-step instructions inline
+- [ ] Connection test endpoint — verify credentials, return workspace list
+- [ ] Workspace selection UI — checkboxes, dev/test first recommendation
+- [ ] Credentials stored encrypted (Fernet/AES), encryption key in environment variable
+
+**Step 3 — Tenant-aware monitoring (3 days)**
+- [ ] `tenant_id` added to all existing tables (datasets, workspaces, incidents, runs)
+- [ ] **Global scheduler** — one scheduler iterates `for tenant in tenants`, no per-tenant scheduler
+- [ ] Per-tenant Power BI credentials loaded at sync time from encrypted store
+
+**Step 4 — Post-onboarding experience (2 days)**
+- [ ] "You're live" screen — "Pulse is monitoring X models" + last sync time
+- [ ] **Test alert sent after onboarding** — email/webhook to confirm monitoring is working
+- [ ] Invite flow — admin invites colleagues via email, role-based (admin/viewer)
+- [ ] Role-based redirect: viewer → Dashboards tab, admin → Models tab
+
+**Step 5 — Later**
+- [ ] Microsoft OAuth as login option (replaces magic link for Microsoft-heavy orgs)
+- [ ] Multi-tenant database isolation — separate DB per organisation (Scenario C)
+- [ ] Pricing and billing — Level 1/2 base, Level 3 upsell
 
 ### Operational monitoring
 
