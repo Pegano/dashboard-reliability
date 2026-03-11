@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Cookie
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import get_db
+from app.core.deps import get_current_tenant
 from app.models.dataset import Dataset
 from app.models.report import Report
 from app.models.workspace import Workspace
@@ -13,28 +14,29 @@ router = APIRouter()
 
 
 @router.get("/sync-status")
-def get_sync_status(db: Session = Depends(get_db)):
-    latest = db.query(func.max(Dataset.synced_at)).scalar()
-    # Voeg Z toe zodat de browser het correct als UTC parseert
+def get_sync_status(session: str | None = Cookie(default=None), db: Session = Depends(get_db)):
+    tenant = get_current_tenant(db, session)
+    latest = db.query(func.max(Dataset.synced_at)).filter(Dataset.tenant_id == tenant.id).scalar()
     ts = latest.strftime("%Y-%m-%dT%H:%M:%SZ") if latest else None
     return {"last_synced_at": ts}
 
 
 @router.get("/")
-def get_environment(db: Session = Depends(get_db)):
-    datasets = db.query(Dataset).all()
+def get_environment(session: str | None = Cookie(default=None), db: Session = Depends(get_db)):
+    tenant = get_current_tenant(db, session)
+
+    datasets = db.query(Dataset).filter(Dataset.tenant_id == tenant.id).all()
     dataset_ids = [d.id for d in datasets]
 
     total_datasets = len(datasets)
-    total_reports = db.query(Report).count()
-    total_workspaces = db.query(Workspace).count()
-    total_runs = db.query(RefreshRun).filter(RefreshRun.dataset_id.in_(dataset_ids)).count()
+    total_workspaces = db.query(Workspace).filter(Workspace.tenant_id == tenant.id).count()
+    total_reports = db.query(Report).filter(Report.dataset_id.in_(dataset_ids)).count() if dataset_ids else 0
+    total_runs = db.query(RefreshRun).filter(RefreshRun.dataset_id.in_(dataset_ids)).count() if dataset_ids else 0
     active_incidents = db.query(Incident).filter(
         Incident.dataset_id.in_(dataset_ids),
         Incident.status == IncidentStatus.active,
-    ).count()
+    ).count() if dataset_ids else 0
 
-    # Refresh heatmap — runs per uur van de dag (0–23), laatste 30 dagen
     from datetime import datetime, timedelta
     cutoff = datetime.utcnow() - timedelta(days=30)
 
@@ -42,9 +44,8 @@ def get_environment(db: Session = Depends(get_db)):
         RefreshRun.dataset_id.in_(dataset_ids),
         RefreshRun.started_at.isnot(None),
         RefreshRun.started_at >= cutoff,
-    ).all()
+    ).all() if dataset_ids else []
 
-    # Heatmap: uur -> {total, failed}
     heatmap = {h: {"total": 0, "failed": 0} for h in range(24)}
     for run in runs_recent:
         hour = run.started_at.hour
@@ -57,20 +58,17 @@ def get_environment(db: Session = Depends(get_db)):
         for h in range(24)
     ]
 
-    # Volume trend — laatste 14 snapshots per dataset (meest recente per dag)
     snapshots = db.query(DatasetSnapshot).filter(
         DatasetSnapshot.dataset_id.in_(dataset_ids),
         DatasetSnapshot.row_count_estimate.isnot(None),
-    ).order_by(DatasetSnapshot.synced_at.asc()).all()
+    ).order_by(DatasetSnapshot.synced_at.asc()).all() if dataset_ids else []
 
-    # Groepeer per dataset, neem per dag het laatste snapshot
     from collections import defaultdict
     dataset_volume: dict[str, dict[str, int]] = defaultdict(dict)
     for snap in snapshots:
         day = snap.synced_at.strftime("%Y-%m-%d")
         dataset_volume[snap.dataset_id][day] = snap.row_count_estimate
 
-    # Dataset naam + workspace map
     name_map = {d.id: d.name for d in datasets}
     workspace_map_ds = {d.id: d.workspace_id for d in datasets}
 
@@ -87,14 +85,13 @@ def get_environment(db: Session = Depends(get_db)):
         for ds_id, days in dataset_volume.items()
     ]
 
-    # Dataset → rapporten mapping
-    reports = db.query(Report).all()
+    reports = db.query(Report).filter(Report.dataset_id.in_(dataset_ids)).all() if dataset_ids else []
     dataset_reports: dict[str, list[str]] = defaultdict(list)
     for r in reports:
         if r.dataset_id:
             dataset_reports[r.dataset_id].append(r.name)
 
-    dataset_map = [
+    dataset_map_list = [
         {
             "dataset_id": d.id,
             "name": d.name,
@@ -115,5 +112,5 @@ def get_environment(db: Session = Depends(get_db)):
         },
         "heatmap": heatmap_list,
         "volume_series": volume_series,
-        "dataset_map": dataset_map,
+        "dataset_map": dataset_map_list,
     }

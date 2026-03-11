@@ -1,11 +1,13 @@
 import re
 import logging
+import resend
 from fastapi import APIRouter, HTTPException, Cookie
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.jwt import decode_session_token
-from app.models.auth import Tenant, TenantUser, UserRole
+from app.core.config import settings
+from app.models.auth import Tenant, TenantUser, UserRole, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -103,15 +105,64 @@ def complete_onboarding(body: CreateTenantRequest, session: str | None = Cookie(
         )
         db.add(tenant_user)
 
-        # Sla Power BI credentials op (encrypted in volgende stap, nu plaintext in tenant)
-        # TODO: encrypt with Fernet before storing
+        # Sla Power BI credentials op (client_secret encrypted met Fernet)
+        from app.core.crypto import encrypt
         tenant.pbi_tenant_id = body.tenant_id
         tenant.pbi_client_id = body.client_id
-        tenant.pbi_client_secret = body.client_secret
+        tenant.pbi_client_secret = encrypt(body.client_secret)
         tenant.monitored_workspace_ids = body.workspace_ids
 
         db.commit()
 
         return {"ok": True, "tenant_id": tenant.id, "slug": tenant.slug}
+    finally:
+        db.close()
+
+
+@router.post("/send-test-alert")
+def send_test_alert(session: str | None = Cookie(default=None)):
+    """Send a test alert email to the current user to verify alert delivery."""
+    user_id = _get_user_id(session)
+    db: Session = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        email = user.email
+
+        if not settings.resend_api_key:
+            logger.info(f"[DEV] Test alert would be sent to {email}")
+            return {"ok": True, "email": email}
+
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": settings.get_auth_email_from(),
+            "to": email,
+            "subject": "Pulse is monitoring your Power BI environment",
+            "html": f"""
+                <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+                    <div style="background:#0d9488;color:white;padding:16px 24px;border-radius:8px 8px 0 0;">
+                        <strong>✓ Pulse is active</strong>
+                    </div>
+                    <div style="background:#1c1c1e;color:#d8d9da;padding:24px;border-radius:0 0 8px 8px;">
+                        <p>This is a test alert to confirm that Pulse can reach you.</p>
+                        <p>You'll receive alerts like this when a dataset refresh fails, is delayed, or a schema change is detected.</p>
+                        <br>
+                        <a href="{settings.app_url}"
+                           style="background:#0d9488;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;">
+                            Go to dashboard →
+                        </a>
+                        <p style="color:#6e7180;font-size:12px;margin-top:24px;">Pulse · Power BI monitoring</p>
+                    </div>
+                </div>
+            """,
+        })
+        logger.info(f"Test alert sent to {email}")
+        return {"ok": True, "email": email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Test alert failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send test alert")
     finally:
         db.close()

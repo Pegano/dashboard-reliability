@@ -15,6 +15,7 @@ class Dataset(Base):
     __tablename__ = "datasets"
 
     id = Column(String, primary_key=True)  # Power BI dataset id
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=True)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
     name = Column(String, nullable=False)
     last_refresh_at = Column(DateTime, nullable=True)

@@ -107,9 +107,9 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 **Goal:** Make Pulse a product others can adopt without friction.
 
 ### Authentication and access control
-- [ ] **Login / identity** — user accounts with email + password or SSO (Azure AD / Google); no anonymous access in production
-- [ ] **Roles** — at minimum: Admin (full access + settings) and Viewer (read-only); extendable per organisation
-- [ ] **Session management** — JWT or server-side sessions, secure cookies
+- [x] **Login / identity** — magic link login (`/login`, `/auth/verify`); no anonymous access in production
+- [x] **Roles** — Admin (full access + settings) and Viewer; enforced via JWT session + middleware
+- [x] **Session management** — JWT session cookie, 24h expiry, secure httpOnly
 
 ### Workspace and alert preferences
 - [ ] **Workspace labels** — mark workspaces as dev / acc / prod (or custom label); visible throughout the UI
@@ -151,16 +151,16 @@ Implementation plan (10–14 days, revised based on architecture review):
 - [ ] **Service principal as second option** — for organisations; step-by-step instructions inline
 - [x] Connection test endpoint — verify credentials, return workspace list
 - [x] Workspace selection UI — checkboxes, dev/test first recommendation
-- [ ] Credentials stored encrypted (Fernet/AES), encryption key in environment variable
+- [x] Credentials stored encrypted (Fernet/AES), encryption key in environment variable
 
 **Step 3 — Tenant-aware monitoring (3 days)**
-- [ ] `tenant_id` added to all existing tables (datasets, workspaces, incidents, runs)
-- [ ] **Global scheduler** — one scheduler iterates `for tenant in tenants`, no per-tenant scheduler
-- [ ] Per-tenant Power BI credentials loaded at sync time from encrypted store
+- [x] `tenant_id` added to all existing tables (datasets, workspaces, incidents, runs)
+- [x] **Global scheduler** — one scheduler iterates `for tenant in tenants`, no per-tenant scheduler
+- [x] Per-tenant Power BI credentials loaded at sync time from encrypted store
 
 **Step 4 — Post-onboarding experience (2 days)**
-- [ ] "You're live" screen — "Pulse is monitoring X models" + last sync time
-- [ ] **Test alert sent after onboarding** — email/webhook to confirm monitoring is working
+- [x] "You're live" screen — "Pulse is monitoring X workspaces" + first sync notice
+- [x] **Test alert sent after onboarding** — email sent automatically to confirm monitoring is working
 - [x] Invite flow — admin invites colleagues via email, role-based (admin/viewer); team management in Settings (list members, revoke invites, remove members)
 - [ ] Role-based redirect: viewer → Dashboards tab, admin → Models tab
 

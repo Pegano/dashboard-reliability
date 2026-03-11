@@ -8,7 +8,9 @@ import json
 import logging
 from sqlalchemy.orm import Session
 from app.connectors.powerbi import client
+from app.connectors.powerbi.auth import get_access_token_for_tenant
 from app.connectors.powerbi.schema import get_model_columns
+from app.models.auth import Tenant
 from app.models.workspace import Workspace
 from app.models.dataset import Dataset, RefreshStatus
 from app.models.report import Report
@@ -19,33 +21,69 @@ logger = logging.getLogger(__name__)
 
 
 def sync_all(db: Session) -> None:
-    logger.info("Start Power BI sync")
-    workspaces = client.get_workspaces()
+    """Itereer over alle tenants en sync hun Power BI data."""
+    tenants = db.query(Tenant).filter(
+        Tenant.pbi_tenant_id.isnot(None),
+        Tenant.pbi_client_id.isnot(None),
+        Tenant.pbi_client_secret.isnot(None),
+    ).all()
+
+    logger.info(f"Start Power BI sync — {len(tenants)} tenant(s)")
+
+    for tenant in tenants:
+        try:
+            _sync_tenant(db, tenant)
+        except Exception as e:
+            logger.error(f"Sync mislukt voor tenant {tenant.slug}: {e}", exc_info=True)
+
+    logger.info("Sync voltooid")
+
+
+def _sync_tenant(db: Session, tenant: Tenant) -> None:
+    from app.core.crypto import decrypt
+    try:
+        client_secret = decrypt(tenant.pbi_client_secret)
+    except Exception:
+        # Fallback for legacy plaintext secrets (pre-encryption migration)
+        client_secret = tenant.pbi_client_secret
+    token = get_access_token_for_tenant(
+        tenant.pbi_tenant_id,
+        tenant.pbi_client_id,
+        client_secret,
+    )
+
+    monitored = set(tenant.monitored_workspace_ids or [])
+    all_workspaces = client.get_workspaces(token)
+
+    # Alleen de geselecteerde workspaces syncen
+    workspaces = [w for w in all_workspaces if not monitored or w["id"] in monitored]
 
     for ws in workspaces:
-        _sync_workspace(db, ws)
+        _sync_workspace(db, ws, token, tenant.id)
 
     db.commit()
-    logger.info(f"Sync voltooid: {len(workspaces)} workspace(s) verwerkt")
+    logger.info(f"Tenant {tenant.slug}: {len(workspaces)} workspace(s) gesyncet")
 
 
-def _sync_workspace(db: Session, ws: dict) -> None:
+def _sync_workspace(db: Session, ws: dict, token: str, tenant_id: str) -> None:
     workspace = db.get(Workspace, ws["id"]) or Workspace(id=ws["id"])
+    workspace.tenant_id = tenant_id
     workspace.name = ws["name"]
     workspace.synced_at = datetime.datetime.utcnow()
     db.merge(workspace)
 
-    datasets = client.get_datasets(ws["id"])
+    datasets = client.get_datasets(ws["id"], token)
     for ds in datasets:
-        _sync_dataset(db, ws["id"], ds)
+        _sync_dataset(db, ws["id"], ds, token, tenant_id)
 
-    reports = client.get_reports(ws["id"])
+    reports = client.get_reports(ws["id"], token)
     for rp in reports:
         _sync_report(db, ws["id"], rp)
 
 
-def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
+def _sync_dataset(db: Session, workspace_id: str, ds: dict, token: str, tenant_id: str) -> None:
     dataset = db.get(Dataset, ds["id"]) or Dataset(id=ds["id"])
+    dataset.tenant_id = tenant_id
     dataset.workspace_id = workspace_id
     dataset.name = ds["name"]
     dataset.web_url = ds.get("webUrl")
@@ -68,7 +106,7 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
 
     # Refresh history ophalen
     try:
-        history = client.get_refresh_history(workspace_id, ds["id"])
+        history = client.get_refresh_history(workspace_id, ds["id"], token)
         if history:
             latest = history[0]
             status = latest.get("status", "unknown").lower()
@@ -78,7 +116,6 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
                     latest["endTime"].replace("Z", "+00:00")
                 )
 
-            # Sla elke history entry op als RefreshRun
             status_map = {
                 "completed": RunStatus.completed,
                 "failed": RunStatus.failed,
@@ -129,8 +166,6 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
         logger.warning(f"Refresh history ophalen mislukt voor dataset {ds['id']}: {e}")
 
     # Desktop publish detectie
-    # Als modifiedDateTime nieuwer is dan vorige waarde én er is geen refresh run gestart
-    # na de vorige modifiedDateTime → maak synthetische run aan met refresh_type=publish
     if (
         new_modified_at is not None
         and prev_modified_at is not None
@@ -156,7 +191,7 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
 
     # Datasources en refresh schedule ophalen
     try:
-        raw_sources = client.get_datasources(workspace_id, ds["id"])
+        raw_sources = client.get_datasources(workspace_id, ds["id"], token)
         dataset.datasources = [
             {
                 "type": s.get("datasourceType"),
@@ -169,7 +204,7 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
         logger.warning(f"Datasources ophalen mislukt voor dataset {ds['id']}: {e}")
 
     try:
-        schedule = client.get_refresh_schedule(workspace_id, ds["id"])
+        schedule = client.get_refresh_schedule(workspace_id, ds["id"], token)
         if schedule is not None:
             dataset.refresh_schedule_enabled = schedule.get("enabled", False)
             dataset.refresh_schedule_times = schedule.get("times", [])
@@ -178,7 +213,7 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict) -> None:
 
     # Schema ophalen via COLUMNSTATISTICS()
     try:
-        columns = get_model_columns(workspace_id, ds["id"])
+        columns = get_model_columns(workspace_id, ds["id"], token)
         if columns:
             _sync_schema(db, ds["id"], columns)
             _write_snapshot(db, ds["id"], columns)
@@ -207,12 +242,10 @@ def _sync_schema(db: Session, dataset_id: str, columns: list[dict]) -> None:
         else:
             column = existing_col
             if new_type and column.data_type and new_type != column.data_type:
-                # Type is gewijzigd — onthoud het vorige type
                 logger.warning(f"Data type change: {col_id} — {column.data_type} → {new_type}")
                 column.previous_data_type = column.data_type
                 column.data_type = new_type
             elif new_type and column.previous_data_type and new_type == column.previous_data_type:
-                # Type is teruggezet naar origineel — wis de type-change markering
                 logger.info(f"Data type hersteld: {col_id} — terug naar {new_type}")
                 column.previous_data_type = None
                 column.data_type = new_type
@@ -241,12 +274,10 @@ def _write_snapshot(db: Session, dataset_id: str, columns: list[dict]) -> None:
     """Schrijf een volumesnapshot op basis van cardinality + duur laatste succesvolle run."""
     now = datetime.datetime.utcnow()
 
-    # Som van alle cardinalities als volumeproxy
     row_count_estimate = sum(
         c["cardinality"] for c in columns if c.get("cardinality") is not None
     ) or None
 
-    # Duur van de meest recente succesvolle run
     last_run = db.query(RefreshRun).filter(
         RefreshRun.dataset_id == dataset_id,
         RefreshRun.status == RunStatus.completed,

@@ -1,9 +1,11 @@
 import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Cookie
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.deps import get_current_tenant
+from app.models.dataset import Dataset as DatasetModel
 from app.models.incident import Incident, IncidentStatus
 from app.models.report import Report
 
@@ -11,8 +13,11 @@ router = APIRouter()
 
 
 @router.get("/")
-def list_incidents(status: str | None = None, db: Session = Depends(get_db)):
-    query = db.query(Incident)
+def list_incidents(status: str | None = None, session: str | None = Cookie(default=None), db: Session = Depends(get_db)):
+    tenant = get_current_tenant(db, session)
+    query = db.query(Incident).join(DatasetModel, Incident.dataset_id == DatasetModel.id).filter(
+        DatasetModel.tenant_id == tenant.id
+    )
     if status:
         try:
             query = query.filter(Incident.status == IncidentStatus[status])

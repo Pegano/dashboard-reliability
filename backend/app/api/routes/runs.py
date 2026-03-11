@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Cookie
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.deps import get_current_tenant
 from app.models.refresh_run import RefreshRun
 from app.models.dataset import Dataset
 from app.models.workspace import Workspace
@@ -12,17 +13,23 @@ def list_runs(
     dataset_id: str | None = None,
     status: str | None = None,
     limit: int = 200,
+    session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    query = db.query(RefreshRun)
+    tenant = get_current_tenant(db, session)
+
+    query = db.query(RefreshRun).join(Dataset, RefreshRun.dataset_id == Dataset.id).filter(
+        Dataset.tenant_id == tenant.id
+    )
     if dataset_id:
         query = query.filter(RefreshRun.dataset_id == dataset_id)
     if status:
         query = query.filter(RefreshRun.status == status)
     runs = query.order_by(RefreshRun.ended_at.desc().nullslast()).limit(limit).all()
 
-    dataset_map = {d.id: (d.name, d.workspace_id) for d in db.query(Dataset).all()}
-    workspace_map = {w.id: w.name for w in db.query(Workspace).all()}
+    tenant_datasets = db.query(Dataset).filter(Dataset.tenant_id == tenant.id).all()
+    dataset_map = {d.id: (d.name, d.workspace_id) for d in tenant_datasets}
+    workspace_map = {w.id: w.name for w in db.query(Workspace).filter(Workspace.tenant_id == tenant.id).all()}
     result = []
     for r in runs:
         ds_name, ws_id = dataset_map.get(r.dataset_id, ("Unknown", None))

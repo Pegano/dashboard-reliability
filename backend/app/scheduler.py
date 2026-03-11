@@ -12,6 +12,8 @@ from app.core.database import SessionLocal
 from app.connectors.powerbi.sync import sync_all
 from app.detection.checks import run_all_checks
 from app.alerts.service import send_alerts_for_incidents
+from app.models.auth import Tenant
+from app.models.dataset import Dataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -25,10 +27,16 @@ def poll_job():
     db = SessionLocal()
     try:
         sync_all(db)
-        incidents = run_all_checks(db)
-        if incidents:
-            logger.info(f"{len(incidents)} incident(en) gedetecteerd")
-            send_alerts_for_incidents(db, incidents)
+        all_incidents = []
+        tenants = db.query(Tenant).filter(Tenant.pbi_tenant_id.isnot(None)).all()
+        for tenant in tenants:
+            tenant_datasets = db.query(Dataset).filter(Dataset.tenant_id == tenant.id).all()
+            incidents = run_all_checks(db, datasets=tenant_datasets)
+            if incidents:
+                all_incidents.extend(incidents)
+        if all_incidents:
+            logger.info(f"{len(all_incidents)} incident(en) gedetecteerd")
+            send_alerts_for_incidents(db, all_incidents)
         # Heartbeat — signals successful cycle to dead-man's-switch monitor
         if settings.healthchecks_ping_url:
             try:

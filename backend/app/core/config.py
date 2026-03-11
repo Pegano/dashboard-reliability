@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret: str = "change-me-in-production"  # override via JWT_SECRET in .env
 
+    # Encryption (Fernet) — used for Power BI client secrets at rest
+    encryption_key: str = ""  # generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
     # Alerts
     resend_api_key: str = ""
     alert_email_to: str = ""

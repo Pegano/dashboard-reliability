@@ -105,6 +105,7 @@ export default function OnboardingPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [testAlertEmail, setTestAlertEmail] = useState<string | null>(null);
 
   async function handleTestConnection() {
     setTesting(true);
@@ -145,6 +146,11 @@ export default function OnboardingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Setup failed");
       setStep("live");
+      // Send test alert in background
+      fetch("/api/onboarding/send-test-alert", { method: "POST" })
+        .then((r) => r.json())
+        .then((d) => { if (d.ok) setTestAlertEmail(d.email); })
+        .catch(() => {});
     } catch (e: any) {
       setSaveError(e.message);
     } finally {
@@ -265,16 +271,25 @@ export default function OnboardingPage() {
           <h2 className="text-base font-semibold mb-1" style={{ color: "var(--text)" }}>
             Pulse is monitoring {selectedIds.size} workspace{selectedIds.size !== 1 ? "s" : ""}
           </h2>
-          <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+          <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
             First sync will complete within a minute. You'll receive an alert if anything needs attention.
           </p>
-          <button
-            onClick={() => router.push("/")}
-            className="rounded-md px-6 py-2 text-sm font-medium"
-            style={{ background: "var(--teal)", color: "#fff", cursor: "pointer" }}
-          >
-            Go to dashboard →
-          </button>
+          {testAlertEmail ? (
+            <p className="text-xs mb-5 rounded-md px-3 py-2 inline-block" style={{ background: "rgba(13,148,136,0.1)", color: "var(--teal)" }}>
+              ✓ Test alert sent to {testAlertEmail}
+            </p>
+          ) : (
+            <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>Sending test alert…</p>
+          )}
+          <div>
+            <button
+              onClick={() => router.push("/")}
+              className="rounded-md px-6 py-2 text-sm font-medium"
+              style={{ background: "var(--teal)", color: "#fff", cursor: "pointer" }}
+            >
+              Go to dashboard →
+            </button>
+          </div>
         </div>
       )}
     </div>

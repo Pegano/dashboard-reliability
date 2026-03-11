@@ -47,9 +47,10 @@ def _parse_error_description(error_description: str | None) -> dict:
     return {"columns": columns, "schema_hint": schema_hint}
 
 
-def run_all_checks(db: Session) -> list[Incident]:
+def run_all_checks(db: Session, datasets: list[Dataset] | None = None) -> list[Incident]:
     new_incidents = []
-    datasets = db.query(Dataset).all()
+    if datasets is None:
+        datasets = db.query(Dataset).all()
 
     for dataset in datasets:
         auto_resolve(db, dataset)
