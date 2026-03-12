@@ -70,7 +70,25 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 
 ---
 
-## Phase 3 — Level 2: Smart monitoring
+## Phase 3 — Dataflow monitoring
+
+**Goal:** Monitor the full data chain in Power BI service-only environments. Dataflows are the transformation layer between datasource and dataset — if a dataflow fails, every dataset built on it fails too. Pulse currently only sees the downstream symptom (dataset failure), not the root cause.
+
+This phase is especially relevant for organisations that do not use Power BI Desktop and build everything in the Power BI service via dataflows.
+
+- [ ] **Dataflow sync** — fetch all dataflows per workspace via `GET /groups/{ws}/dataflows`; store name, description, workspace
+- [ ] **Dataflow transaction history** — fetch run history via `GET /groups/{ws}/dataflows/{df}/transactions`; same structure as dataset refresh history (status, start, end, error)
+- [ ] **Dataflow detection checks** — `dataflow_failed`, `dataflow_delayed` checks; same pattern as dataset checks
+- [ ] **Dataflow → Dataset linkage** — show which datasets depend on a failing dataflow; surface as root cause hint on dataset incidents
+- [ ] **Dataflows tab or section** — visible in the UI alongside datasets; health status per dataflow
+- [ ] **Upstream dataflow linkage** — use `GET /groups/{ws}/datasets/{ds}/upstreamDataflows` to resolve which dataflows feed each dataset; used to surface root cause hints ("dataset failed because upstream dataflow X failed")
+- [ ] **Dataset parameters sync** — fetch dataset parameters via `GET /groups/{ws}/datasets/{ds}/parameters`; store values and detect changes; surface as context on refresh failures ("parameter ServerName changed before first failure")
+- [ ] **Transaction entity detail** — investigate `GET /groups/{ws}/dataflows/{df}/transactions/{transactionId}` to retrieve which individual entities (tables/steps) within a dataflow failed; required for step-level error pinpointing
+- [ ] **Visual dataflow representation** — show the dataflow not just as a text error but as a visual flow diagram; highlight which step/entity failed so users can immediately see where in the chain the problem occurred (e.g. step 3 of 7: "Normalize orders" failed)
+
+---
+
+## Phase 4 — Level 2: Smart monitoring
 
 **Goal:** Detect degradation before it becomes a failure. Works with any Power BI licence.
 
@@ -87,7 +105,7 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 
 ---
 
-## Phase 4 — Level 3: Model intelligence
+## Phase 5 — Level 3: Model intelligence
 
 **Goal:** Understand *why* something broke. Requires Premium capacity or Microsoft Fabric.
 
@@ -102,7 +120,7 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 
 ---
 
-## Phase 5 — Product and go-to-market
+## Phase 6 — Product and go-to-market
 
 **Goal:** Make Pulse a product others can adopt without friction.
 
