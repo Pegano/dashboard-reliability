@@ -25,9 +25,9 @@ def get_reports(workspace_id: str, token: str) -> list[dict]:
     return r.json().get("value", [])
 
 
-def get_refresh_history(workspace_id: str, dataset_id: str, token: str) -> list[dict]:
+def get_refresh_history(workspace_id: str, dataset_id: str, token: str, top: int = 200) -> list[dict]:
     r = requests.get(
-        f"{BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
+        f"{BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/refreshes?$top={top}",
         headers=_h(token),
     )
     r.raise_for_status()

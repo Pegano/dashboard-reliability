@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
-import { fetchDatasets, fetchDatasetHealth, fetchIncidents, fetchReports, fetchRuns, fetchWorkspaces } from "@/lib/api";
-import { Dataset, DatasetHealth, Incident, Report, RefreshRun, HealthStatus, Workspace } from "@/lib/types";
+import { fetchDatasets, fetchDatasetHealth, fetchIncidents, fetchReports, fetchRuns, fetchWorkspaces, fetchDatasetSchema } from "@/lib/api";
+import { Dataset, DatasetHealth, Incident, Report, RefreshRun, HealthStatus, Workspace, SchemaTable } from "@/lib/types";
 import StatusDot from "@/components/StatusDot";
 import { notFound } from "next/navigation";
 import PipelineTabs from "./PipelineTabs";
@@ -31,13 +31,14 @@ export default async function PipelineDetailPage({
   const { id } = await params;
   const { tab, incident: focusIncidentId } = await searchParams;
 
-  const [datasets, allIncidents, reports, runs, workspaces, health] = await Promise.all([
+  const [datasets, allIncidents, reports, runs, workspaces, health, schema] = await Promise.all([
     fetchDatasets(undefined, session),
     fetchIncidents(undefined, session),
     fetchReports(id, session),
     fetchRuns(id, session),
     fetchWorkspaces(session),
     fetchDatasetHealth(id, session),
+    fetchDatasetSchema(id, session).catch(() => []),
   ]);
 
   const dataset: Dataset | undefined = datasets.find((d: Dataset) => d.id === id);
@@ -79,7 +80,8 @@ export default async function PipelineDetailPage({
         allIncidents={incidents}
         reports={reports}
         runs={runs}
-        defaultTab={defaultTab as "Runs" | "Issues" | "Fix"}
+        schema={schema as SchemaTable[]}
+        defaultTab={defaultTab as "Runs" | "Issues" | "Fix" | "Model"}
         focusIncidentId={focusIncidentId}
       />
     </div>

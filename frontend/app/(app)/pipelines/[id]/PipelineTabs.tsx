@@ -2,11 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Dataset, DatasetHealth, Datasource, Incident, Report, RefreshRun } from "@/lib/types";
+import { Dataset, DatasetHealth, Datasource, Incident, Report, RefreshRun, SchemaTable, SchemaColumn } from "@/lib/types";
 import SeverityBadge from "@/components/SeverityBadge";
 import { suppressIncident } from "@/lib/api";
 
-const TABS = ["Runs", "Issues", "Analysis", "Fix"] as const;
+const TABS = ["Runs", "Issues", "Analysis", "Fix", "Model"] as const;
 type Tab = (typeof TABS)[number];
 
 
@@ -228,11 +228,12 @@ interface Props {
   allIncidents: Incident[];
   reports: Report[];
   runs: RefreshRun[];
+  schema: SchemaTable[];
   defaultTab?: Tab;
   focusIncidentId?: string;
 }
 
-export default function PipelineTabs({ dataset, health, activeIncidents, allIncidents, reports, runs, defaultTab, focusIncidentId }: Props) {
+export default function PipelineTabs({ dataset, health, activeIncidents, allIncidents, reports, runs, schema, defaultTab, focusIncidentId }: Props) {
   const [active, setActive] = useState<Tab>(defaultTab ?? "Runs");
   const [focusId, setFocusId] = useState<string | undefined>(focusIncidentId);
 
@@ -458,6 +459,10 @@ export default function PipelineTabs({ dataset, health, activeIncidents, allInci
 
       {active === "Fix" && (
         <FixTab activeIncidents={activeIncidents} health={health} runs={runs} focusIncidentId={focusId} />
+      )}
+
+      {active === "Model" && (
+        <ModelTab schema={schema} />
       )}
     </div>
   );
@@ -952,6 +957,163 @@ function FixTab({ activeIncidents, health, runs, focusIncidentId }: { activeInci
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function formatCardinality(n: number | null): string {
+  if (n === null) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+function ModelTab({ schema }: { schema: SchemaTable[] }) {
+  const [openTables, setOpenTables] = useState<Set<string>>(new Set());
+
+  function toggleTable(name: string) {
+    setOpenTables((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  if (schema.length === 0) {
+    return (
+      <div
+        className="rounded-lg border px-6 py-12 text-center"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      >
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          No schema available. Schema is synced via COLUMNSTATISTICS — it may not be available for all datasets.
+        </p>
+      </div>
+    );
+  }
+
+  const totalColumns = schema.reduce((s, t) => s + t.active_column_count, 0);
+  const changedColumns = schema.reduce(
+    (s, t) => s + t.columns.filter((c) => c.previous_data_type !== null).length, 0
+  );
+  const removedColumns = schema.reduce(
+    (s, t) => s + t.columns.filter((c) => !c.is_active).length, 0
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="flex gap-3 flex-wrap">
+        {[
+          { label: "Tables", value: schema.length },
+          { label: "Columns", value: totalColumns },
+          ...(changedColumns > 0 ? [{ label: "Type changes", value: changedColumns, color: "var(--yellow)" }] : []),
+          ...(removedColumns > 0 ? [{ label: "Removed", value: removedColumns, color: "var(--red)" }] : []),
+        ].map(({ label, value, color }) => (
+          <div
+            key={label}
+            className="px-4 py-2 rounded-lg border text-sm"
+            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+          >
+            <span style={{ color: "var(--text-muted)" }}>{label} </span>
+            <span className="font-semibold" style={{ color: color ?? "var(--text)" }}>{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Tables */}
+      <div className="space-y-2">
+        {schema.map((table) => {
+          const isOpen = openTables.has(table.table_name);
+          const hasChanges = table.columns.some((c) => c.previous_data_type !== null || !c.is_active);
+
+          return (
+            <div
+              key={table.table_name}
+              className="rounded-lg border overflow-hidden"
+              style={{ borderColor: hasChanges ? "rgba(250,222,42,0.3)" : "var(--border)", background: "var(--surface)" }}
+            >
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+                onClick={() => toggleTable(table.table_name)}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>▤</span>
+                  <span className="font-medium text-sm" style={{ color: "var(--text)" }}>{table.table_name}</span>
+                  {hasChanges && (
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(250,222,42,0.1)", color: "var(--yellow)" }}>
+                      changes
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {table.active_column_count} column{table.active_column_count !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{isOpen ? "▲" : "▼"}</span>
+                </div>
+              </button>
+
+              {isOpen && (
+                <div className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                        {["Column", "Type", "Cardinality", "Status"].map((h) => (
+                          <th key={h} className="px-4 py-2 text-left font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {table.columns.map((col) => {
+                        const isRemoved = !col.is_active;
+                        const isChanged = col.previous_data_type !== null;
+                        return (
+                          <tr
+                            key={col.column_name}
+                            style={{ borderBottom: "1px solid var(--border)", opacity: isRemoved ? 0.5 : 1 }}
+                          >
+                            <td className="px-4 py-2 font-mono" style={{ color: isRemoved ? "var(--red)" : "var(--text)" }}>
+                              {isRemoved && <span className="mr-1" style={{ color: "var(--red)" }}>−</span>}
+                              {col.column_name}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-muted)" }}>
+                              {isChanged ? (
+                                <span>
+                                  <span style={{ color: "var(--red)", textDecoration: "line-through" }}>{col.previous_data_type}</span>
+                                  {" → "}
+                                  <span style={{ color: "var(--yellow)" }}>{col.data_type}</span>
+                                </span>
+                              ) : (
+                                col.data_type ?? "—"
+                              )}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-muted)" }}>
+                              {formatCardinality(col.cardinality)}
+                            </td>
+                            <td className="px-4 py-2">
+                              {isRemoved ? (
+                                <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: "rgba(255,80,80,0.1)", color: "var(--red)" }}>removed</span>
+                              ) : isChanged ? (
+                                <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: "rgba(250,222,42,0.1)", color: "var(--yellow)" }}>type changed</span>
+                              ) : (
+                                <span style={{ color: "var(--text-muted)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

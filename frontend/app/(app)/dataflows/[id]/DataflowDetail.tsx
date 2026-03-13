@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { DataflowRun, DataflowEntity } from "@/lib/types";
 
+interface EntitySchemaEntry {
+  entity_name: string;
+  columns: { column_name: string; data_type: string | null; cardinality: number | null }[];
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString("nl-NL", {
@@ -46,7 +51,12 @@ function RunStatusBadge({ status }: { status: string }) {
   );
 }
 
-function FlowDiagram({ run }: { run: DataflowRun }) {
+function FlowDiagram({ run, entitySchema, selectedEntity, onSelectEntity }: {
+  run: DataflowRun;
+  entitySchema: EntitySchemaEntry[];
+  selectedEntity: string | null;
+  onSelectEntity: (name: string | null) => void;
+}) {
   const entities = run.entities || [];
   if (entities.length === 0) {
     return (
@@ -56,65 +66,115 @@ function FlowDiagram({ run }: { run: DataflowRun }) {
     );
   }
 
-  const totalDuration = run.duration_ms;
   const maxEntityMs = Math.max(...entities.map(e => entityDurationMs(e) || 0), 1);
+  const schemaMap = Object.fromEntries(entitySchema.map(e => [e.entity_name, e.columns]));
 
   return (
-    <div className="mt-4 space-y-2">
+    <div className="mt-4 space-y-1">
       <p className="text-xs font-medium uppercase tracking-wide mb-3" style={{ color: "var(--text-muted)" }}>
         Flow — {entities.length} entit{entities.length !== 1 ? "ies" : "y"}
+        {entitySchema.length > 0 && (
+          <span className="ml-2 normal-case font-normal" style={{ color: "var(--text-muted)" }}>
+            · click an entity to see columns
+          </span>
+        )}
       </p>
       {entities.map((entity, i) => {
         const durationMs = entityDurationMs(entity);
         const barWidth = durationMs !== null ? Math.max(4, (durationMs / maxEntityMs) * 100) : 4;
         const statusColor = EntityStatusColor(entity.status);
         const isFailed = (entity.status || "").toLowerCase() === "failed" || (entity.status || "").toLowerCase() === "error";
+        const entityName = entity.name || "";
+        const isSelected = selectedEntity === entityName;
+        const columns = schemaMap[entityName] ?? null;
+        const isClickable = columns !== null;
 
         return (
-          <div key={i} className="flex items-center gap-3">
-            {/* Step number */}
-            <span
-              className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium"
+          <div key={i}>
+            <div
+              className="flex items-center gap-3 rounded px-2 py-1 transition-colors"
               style={{
-                background: isFailed ? "rgba(255,80,80,0.15)" : "rgba(255,255,255,0.05)",
-                color: statusColor,
-                border: `1px solid ${statusColor}`,
+                cursor: isClickable ? "pointer" : "default",
+                background: isSelected ? "rgba(0,180,216,0.06)" : "transparent",
+                border: isSelected ? "1px solid rgba(0,180,216,0.2)" : "1px solid transparent",
               }}
+              onClick={() => isClickable && onSelectEntity(isSelected ? null : entityName)}
             >
-              {i + 1}
-            </span>
-
-            {/* Entity name */}
-            <span
-              className="flex-shrink-0 text-sm w-48 truncate"
-              style={{ color: isFailed ? "var(--red)" : "var(--text)" }}
-              title={entity.name || ""}
-            >
-              {entity.name || "—"}
-            </span>
-
-            {/* Duration bar */}
-            <div className="flex-1 flex items-center gap-2">
-              <div className="flex-1 h-1.5 rounded-full" style={{ background: "var(--border)" }}>
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${barWidth}%`,
-                    background: statusColor,
-                    opacity: durationMs === null ? 0.3 : 1,
-                  }}
-                />
-              </div>
-              <span className="flex-shrink-0 text-xs w-12 text-right" style={{ color: "var(--text-muted)" }}>
-                {formatDuration(durationMs)}
+              <span
+                className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium"
+                style={{
+                  background: isFailed ? "rgba(255,80,80,0.15)" : "rgba(255,255,255,0.05)",
+                  color: statusColor,
+                  border: `1px solid ${statusColor}`,
+                }}
+              >
+                {i + 1}
               </span>
+
+              <span
+                className="flex-shrink-0 text-sm w-48 truncate"
+                style={{ color: isFailed ? "var(--red)" : isSelected ? "var(--teal)" : "var(--text)" }}
+                title={entityName}
+              >
+                {entityName || "—"}
+              </span>
+
+              <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full" style={{ background: "var(--border)" }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${barWidth}%`, background: statusColor, opacity: durationMs === null ? 0.3 : 1 }}
+                  />
+                </div>
+                <span className="flex-shrink-0 text-xs w-12 text-right" style={{ color: "var(--text-muted)" }}>
+                  {formatDuration(durationMs)}
+                </span>
+              </div>
+
+              {isFailed && entity.error && (
+                <span className="flex-shrink-0 text-xs max-w-xs truncate" style={{ color: "var(--red)" }} title={entity.error}>
+                  {entity.error}
+                </span>
+              )}
+
+              {isClickable && (
+                <span className="flex-shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {isSelected ? "▲" : "▼"}
+                </span>
+              )}
             </div>
 
-            {/* Error hint */}
-            {isFailed && entity.error && (
-              <span className="flex-shrink-0 text-xs max-w-xs truncate" style={{ color: "var(--red)" }} title={entity.error}>
-                {entity.error}
-              </span>
+            {/* Inline column list */}
+            {isSelected && columns && (
+              <div
+                className="ml-8 mt-1 mb-2 rounded border overflow-hidden"
+                style={{ borderColor: "var(--border)", background: "rgba(0,180,216,0.03)" }}
+              >
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      {["Column", "Type", "Cardinality"].map(h => (
+                        <th key={h} className="px-3 py-1.5 text-left font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {columns.map((col) => (
+                      <tr key={col.column_name} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td className="px-3 py-1.5 font-mono" style={{ color: "var(--text)" }}>{col.column_name}</td>
+                        <td className="px-3 py-1.5" style={{ color: "var(--text-muted)" }}>{col.data_type ?? "—"}</td>
+                        <td className="px-3 py-1.5" style={{ color: "var(--text-muted)" }}>
+                          {col.cardinality !== null
+                            ? col.cardinality >= 1_000_000 ? `${(col.cardinality / 1_000_000).toFixed(1)}M`
+                            : col.cardinality >= 1_000 ? `${(col.cardinality / 1_000).toFixed(0)}K`
+                            : String(col.cardinality)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         );
@@ -123,10 +183,11 @@ function FlowDiagram({ run }: { run: DataflowRun }) {
   );
 }
 
-export default function DataflowDetail({ runs }: { runs: DataflowRun[] }) {
+export default function DataflowDetail({ runs, entitySchema }: { runs: DataflowRun[]; entitySchema: EntitySchemaEntry[] }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(
     runs.length > 0 ? runs[0].id : null
   );
+  const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
 
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
 
@@ -222,7 +283,12 @@ export default function DataflowDetail({ runs }: { runs: DataflowRun[] }) {
               </div>
             )}
 
-            <FlowDiagram run={selectedRun} />
+            <FlowDiagram
+              run={selectedRun}
+              entitySchema={entitySchema}
+              selectedEntity={selectedEntity}
+              onSelectEntity={setSelectedEntity}
+            />
           </>
         ) : (
           <p className="text-sm text-center py-8" style={{ color: "var(--text-muted)" }}>

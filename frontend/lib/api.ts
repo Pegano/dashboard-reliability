@@ -100,3 +100,15 @@ export async function fetchDataflowRuns(dataflowId: string, session?: string) {
   if (!res.ok) throw new Error("Failed to fetch dataflow runs");
   return res.json();
 }
+
+export async function fetchDatasetSchema(datasetId: string, session?: string) {
+  const res = await fetch(`${API_BASE}/api/datasets/${datasetId}/schema`, withSession(session));
+  if (!res.ok) throw new Error("Failed to fetch dataset schema");
+  return res.json();
+}
+
+export async function fetchDataflowSchema(dataflowId: string, session?: string) {
+  const res = await fetch(`${API_BASE}/api/dataflows/${dataflowId}/schema`, withSession(session));
+  if (!res.ok) return { entities: [], datasets: [] };
+  return res.json();
+}

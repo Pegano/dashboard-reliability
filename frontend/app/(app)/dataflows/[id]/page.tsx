@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
-import { fetchDataflows, fetchDataflowRuns, fetchWorkspaces } from "@/lib/api";
-import { Dataflow, DataflowRun, DataflowEntity, Workspace } from "@/lib/types";
+import { fetchDataflows, fetchDataflowRuns, fetchWorkspaces, fetchDataflowSchema } from "@/lib/api";
+import { Dataflow, DataflowRun, Workspace } from "@/lib/types";
 import { notFound } from "next/navigation";
 import StatusDot from "@/components/StatusDot";
 import DataflowDetail from "./DataflowDetail";
@@ -21,10 +21,11 @@ export default async function DataflowDetailPage({
   const session = (await cookies()).get("session")?.value;
   const { id } = await params;
 
-  const [dataflows, runs, workspaces] = await Promise.all([
+  const [dataflows, runs, workspaces, schemaData] = await Promise.all([
     fetchDataflows(undefined, session),
     fetchDataflowRuns(id, session),
     fetchWorkspaces(session),
+    fetchDataflowSchema(id, session),
   ]);
 
   const dataflow: Dataflow | undefined = dataflows.find((df: Dataflow) => df.id === id);
@@ -49,7 +50,7 @@ export default async function DataflowDetailPage({
         </p>
       </div>
 
-      <DataflowDetail runs={runs} />
+      <DataflowDetail runs={runs} entitySchema={schemaData.entities ?? []} />
     </div>
   );
 }

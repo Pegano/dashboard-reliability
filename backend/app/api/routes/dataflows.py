@@ -99,6 +99,59 @@ def get_dataflow(
     }
 
 
+@router.get("/{dataflow_id}/schema")
+def get_dataflow_schema(
+    dataflow_id: str,
+    session: str | None = Cookie(default=None),
+    db: Session = Depends(_get_db),
+):
+    """Schema van alle datasets die upstream van deze dataflow liggen, gegroepeerd per entiteitnaam."""
+    from app.models.dataset import Dataset
+    from app.models.schema import DatasetColumn
+
+    tenant = get_current_tenant(db, session)
+    df = db.query(Dataflow).filter(
+        Dataflow.id == dataflow_id,
+        Dataflow.tenant_id == tenant.id,
+    ).first()
+    if not df:
+        raise HTTPException(status_code=404, detail="Dataflow not found")
+
+    # Datasets die deze dataflow als upstream hebben
+    from sqlalchemy import cast
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    datasets = db.query(Dataset).filter(
+        Dataset.tenant_id == tenant.id,
+        Dataset.upstream_dataflow_ids.cast(JSONB).contains(cast([dataflow_id], JSONB)),
+    ).all()
+
+    # Kolommen per tabel, over alle gekoppelde datasets
+    entity_schema: dict[str, list[dict]] = {}
+    for dataset in datasets:
+        columns = db.query(DatasetColumn).filter(
+            DatasetColumn.dataset_id == dataset.id,
+            DatasetColumn.is_active == True,
+        ).order_by(DatasetColumn.table_name, DatasetColumn.column_name).all()
+        for col in columns:
+            if col.table_name not in entity_schema:
+                entity_schema[col.table_name] = []
+            entity_schema[col.table_name].append({
+                "column_name": col.column_name,
+                "data_type": col.data_type,
+                "cardinality": col.cardinality,
+            })
+
+    return {
+        "dataflow_id": dataflow_id,
+        "datasets": [{"id": d.id, "name": d.name} for d in datasets],
+        "entities": [
+            {"entity_name": name, "columns": cols}
+            for name, cols in sorted(entity_schema.items())
+        ],
+    }
+
+
 @router.get("/{dataflow_id}/runs")
 def list_dataflow_runs(
     dataflow_id: str,

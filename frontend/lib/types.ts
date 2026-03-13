@@ -77,6 +77,23 @@ export interface RefreshRunWithDataset extends RefreshRun {
   workspace_name: string;
 }
 
+export interface SchemaColumn {
+  column_name: string;
+  data_type: string | null;
+  previous_data_type: string | null;
+  cardinality: number | null;
+  is_active: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface SchemaTable {
+  table_name: string;
+  column_count: number;
+  active_column_count: number;
+  columns: SchemaColumn[];
+}
+
 export interface DataflowEntity {
   name: string;
   status: string | null;
