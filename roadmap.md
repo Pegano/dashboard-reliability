@@ -76,15 +76,17 @@ This is the upsell model: Level 1+2 solve a real problem for every Power BI cust
 
 This phase is especially relevant for organisations that do not use Power BI Desktop and build everything in the Power BI service via dataflows.
 
-- [ ] **Dataflow sync** — fetch all dataflows per workspace via `GET /groups/{ws}/dataflows`; store name, description, workspace
-- [ ] **Dataflow transaction history** — fetch run history via `GET /groups/{ws}/dataflows/{df}/transactions`; same structure as dataset refresh history (status, start, end, error)
-- [ ] **Dataflow detection checks** — `dataflow_failed`, `dataflow_delayed` checks; same pattern as dataset checks
-- [ ] **Dataflow → Dataset linkage** — show which datasets depend on a failing dataflow; surface as root cause hint on dataset incidents
-- [ ] **Dataflows tab or section** — visible in the UI alongside datasets; health status per dataflow
-- [ ] **Upstream dataflow linkage** — use `GET /groups/{ws}/datasets/{ds}/upstreamDataflows` to resolve which dataflows feed each dataset; used to surface root cause hints ("dataset failed because upstream dataflow X failed")
-- [ ] **Dataset parameters sync** — fetch dataset parameters via `GET /groups/{ws}/datasets/{ds}/parameters`; store values and detect changes; surface as context on refresh failures ("parameter ServerName changed before first failure")
-- [ ] **Transaction entity detail** — investigate `GET /groups/{ws}/dataflows/{df}/transactions/{transactionId}` to retrieve which individual entities (tables/steps) within a dataflow failed; required for step-level error pinpointing
-- [ ] **Visual dataflow representation** — show the dataflow not just as a text error but as a visual flow diagram; highlight which step/entity failed so users can immediately see where in the chain the problem occurred (e.g. step 3 of 7: "Normalize orders" failed)
+- [x] **Dataflow sync** — fetch all dataflows per workspace via `GET /groups/{ws}/dataflows`; store name, description, workspace, refresh status
+- [x] **Dataflow transaction history** — fetch run history via `GET /groups/{ws}/dataflows/{df}/transactions`; status, start/end, error stored per run
+- [x] **Dataflow detection checks** — `dataflow_failed`, `dataflow_delayed` checks + auto-resolve; per-tenant in scheduler
+- [x] **Upstream dataflow linkage** — `GET /groups/{ws}/datasets/{ds}/upstreamDataflows`; stored as `upstream_dataflow_ids` on Dataset; links entities to dataset table schema
+- [x] **Dataset parameters sync** — `GET /groups/{ws}/datasets/{ds}/parameters`; stored as JSON on Dataset; surfaced in health endpoint
+- [x] **Transaction entity detail** — entities (tables/steps) stored per run with status, start/end, error; fetched for every run for visual display
+- [x] **Visual dataflow representation** — flow diagram per run; entities as numbered steps with duration bars, status colors, error hints; click entity to expand inline column list from linked dataset
+- [x] **Dataflows tab** — /dataflows list + /dataflows/[id] detail with run history and visual flow
+- [x] **Model tab on dataset detail** — /pipelines/[id] Model tab; expandable tables → columns with type, cardinality, change status
+- [x] **Refresh history fix** — `$top=200` sent to Power BI refreshes API; was defaulting to 10, causing missing runs
+- [ ] **Dataflow → Dataset root cause hint** — when a dataset incident occurs and an upstream dataflow also failed around the same time, surface this automatically as a root cause hint on the dataset incident
 
 ---
 
