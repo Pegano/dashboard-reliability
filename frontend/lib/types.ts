@@ -76,3 +76,35 @@ export interface RefreshRunWithDataset extends RefreshRun {
   dataset_name: string;
   workspace_name: string;
 }
+
+export interface DataflowEntity {
+  name: string;
+  status: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  error: string | null;
+}
+
+export interface Dataflow {
+  id: string;
+  name: string;
+  description: string | null;
+  workspace_id: string;
+  last_refresh_at: string | null;
+  refresh_status: string;
+  health: HealthStatus;
+  active_incidents: number;
+  synced_at: string;
+}
+
+export interface DataflowRun {
+  id: string;
+  dataflow_id: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  entities: DataflowEntity[];
+  duration_ms: number | null;
+}

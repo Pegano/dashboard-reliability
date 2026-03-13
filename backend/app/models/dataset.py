@@ -30,6 +30,10 @@ class Dataset(Base):
     refresh_schedule_enabled = Column(Boolean, nullable=True)
     refresh_schedule_times = Column(JSON, nullable=True)  # list of "HH:MM" strings
 
+    # Dataflow linkage (populated during sync)
+    upstream_dataflow_ids = Column(JSON, nullable=True)  # list of dataflow ids feeding this dataset
+    parameters = Column(JSON, nullable=True)             # list of {name, type, currentValue}
+
     workspace = relationship("Workspace", back_populates="datasets")
     schema_columns = relationship("DatasetColumn", back_populates="dataset")
     incidents = relationship("Incident", back_populates="dataset")

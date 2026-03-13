@@ -12,6 +12,7 @@ from app.models.dataset import Dataset, RefreshStatus
 from app.models.schema import DatasetColumn, DatasetSnapshot
 from app.models.incident import Incident, IncidentStatus, IncidentSeverity
 from app.models.refresh_run import RefreshRun, RunStatus
+from app.models.dataflow import Dataflow, DataflowRun, DataflowRunStatus, DataflowStatus
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,11 @@ def _parse_error_description(error_description: str | None) -> dict:
     return {"columns": columns, "schema_hint": schema_hint}
 
 
-def run_all_checks(db: Session, datasets: list[Dataset] | None = None) -> list[Incident]:
+def run_all_checks(
+    db: Session,
+    datasets: list[Dataset] | None = None,
+    dataflows: list[Dataflow] | None = None,
+) -> list[Incident]:
     new_incidents = []
     if datasets is None:
         datasets = db.query(Dataset).all()
@@ -59,6 +64,14 @@ def run_all_checks(db: Session, datasets: list[Dataset] | None = None) -> list[I
         new_incidents += check_schema_changes(db, dataset)
         new_incidents += check_refresh_slow(db, dataset)
         new_incidents += check_dataset_growth(db, dataset)
+
+    if dataflows is None:
+        dataflows = db.query(Dataflow).all()
+
+    for dataflow in dataflows:
+        auto_resolve_dataflow(db, dataflow)
+        new_incidents += check_dataflow_failed(db, dataflow)
+        new_incidents += check_dataflow_delayed(db, dataflow)
 
     if new_incidents:
         db.add_all(new_incidents)
@@ -355,3 +368,106 @@ def _active_incident_exists(db: Session, dataset_id: str, incident_type: str) ->
         Incident.type == incident_type,
         Incident.status.in_([IncidentStatus.active, IncidentStatus.suppressed]),
     ).first() is not None
+
+
+def _active_dataflow_incident_exists(db: Session, dataflow_id: str, incident_type: str) -> bool:
+    return db.query(Incident).filter(
+        Incident.dataflow_id == dataflow_id,
+        Incident.type == incident_type,
+        Incident.status.in_([IncidentStatus.active, IncidentStatus.suppressed]),
+    ).first() is not None
+
+
+DATAFLOW_DELAY_HOURS = 24
+
+
+def auto_resolve_dataflow(db: Session, dataflow: Dataflow) -> None:
+    now = datetime.datetime.utcnow()
+    active = db.query(Incident).filter(
+        Incident.dataflow_id == dataflow.id,
+        Incident.status.in_([IncidentStatus.active, IncidentStatus.suppressed]),
+    ).all()
+
+    for incident in active:
+        resolved = False
+
+        if incident.type == "dataflow_failed":
+            resolved = dataflow.refresh_status != DataflowStatus.failed
+
+        elif incident.type == "dataflow_delayed":
+            if dataflow.last_refresh_at:
+                last = dataflow.last_refresh_at.replace(tzinfo=None) if dataflow.last_refresh_at.tzinfo else dataflow.last_refresh_at
+                resolved = (now - last).total_seconds() / 3600 < DATAFLOW_DELAY_HOURS
+
+        if resolved:
+            incident.status = IncidentStatus.resolved
+            incident.resolved_at = now
+            logger.info(f"Auto-resolved dataflow incident {incident.type} for dataflow {dataflow.name}")
+
+    db.commit()
+
+
+def check_dataflow_failed(db: Session, dataflow: Dataflow) -> list[Incident]:
+    if dataflow.refresh_status != DataflowStatus.failed:
+        return []
+
+    if _active_dataflow_incident_exists(db, dataflow.id, "dataflow_failed"):
+        return []
+
+    last_failed = db.query(DataflowRun).filter(
+        DataflowRun.dataflow_id == dataflow.id,
+        DataflowRun.status == DataflowRunStatus.Failed,
+    ).order_by(DataflowRun.ended_at.desc()).first()
+
+    error_code = last_failed.error_code if last_failed else None
+    error_message = last_failed.error_message if last_failed else None
+
+    # Identify failed entity (step) for root cause hint
+    failed_entity = None
+    if last_failed and last_failed.entities:
+        for entity in last_failed.entities:
+            if (entity.get("status") or "").lower() in ("failed", "error"):
+                failed_entity = entity.get("name")
+                break
+
+    if failed_entity:
+        hint = f"Entity '{failed_entity}' failed in the dataflow. Check its query or datasource."
+    elif error_code:
+        hint = error_code
+    else:
+        hint = "Dataflow refresh failed. Check the dataflow entity details for the failing step."
+
+    logger.warning(f"Dataflow mislukt: {dataflow.name} — {error_code or 'unknown error'}")
+    return [Incident(
+        id=str(uuid.uuid4()),
+        dataflow_id=dataflow.id,
+        type="dataflow_failed",
+        severity=IncidentSeverity.critical,
+        root_cause_hint=hint,
+        detail=error_message,
+    )]
+
+
+def check_dataflow_delayed(db: Session, dataflow: Dataflow) -> list[Incident]:
+    if not dataflow.last_refresh_at:
+        return []
+
+    now = datetime.datetime.utcnow()
+    last = dataflow.last_refresh_at.replace(tzinfo=None) if dataflow.last_refresh_at.tzinfo else dataflow.last_refresh_at
+    hours_since = (now - last).total_seconds() / 3600
+
+    if hours_since < DATAFLOW_DELAY_HOURS:
+        return []
+
+    if _active_dataflow_incident_exists(db, dataflow.id, "dataflow_delayed"):
+        return []
+
+    logger.warning(f"Dataflow vertraagd: {dataflow.name} ({hours_since:.0f} uur geleden)")
+    return [Incident(
+        id=str(uuid.uuid4()),
+        dataflow_id=dataflow.id,
+        type="dataflow_delayed",
+        severity=IncidentSeverity.warning,
+        root_cause_hint=f"Dataflow has not refreshed for {hours_since:.0f} hours.",
+        detail=f"Last refresh: {dataflow.last_refresh_at.isoformat()}",
+    )]

@@ -20,7 +20,8 @@ class Incident(Base):
     __tablename__ = "incidents"
 
     id = Column(String, primary_key=True)
-    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
+    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=True)
+    dataflow_id = Column(String, ForeignKey("dataflows.id"), nullable=True)
     detected_at = Column(DateTime, default=datetime.datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     status = Column(Enum(IncidentStatus), default=IncidentStatus.active)
@@ -30,5 +31,6 @@ class Incident(Base):
     detail = Column(Text, nullable=True)
     suppressed_until = Column(DateTime, nullable=True)
 
-    dataset = relationship("Dataset", back_populates="incidents")
+    dataset = relationship("Dataset", back_populates="incidents", foreign_keys=[dataset_id])
+    dataflow = relationship("Dataflow", back_populates="incidents", foreign_keys=[dataflow_id])
     alerts = relationship("Alert", back_populates="incident")

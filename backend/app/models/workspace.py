@@ -14,3 +14,4 @@ class Workspace(Base):
 
     datasets = relationship("Dataset", back_populates="workspace")
     reports = relationship("Report", back_populates="workspace")
+    dataflows = relationship("Dataflow", back_populates="workspace")

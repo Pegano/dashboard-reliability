@@ -85,3 +85,18 @@ export async function fetchSyncStatus(session?: string) {
   if (!res.ok) return { last_synced_at: null };
   return res.json();
 }
+
+export async function fetchDataflows(workspaceId?: string, session?: string) {
+  const url = workspaceId
+    ? `${API_BASE}/api/dataflows/?workspace_id=${workspaceId}`
+    : `${API_BASE}/api/dataflows/`;
+  const res = await fetch(url, withSession(session));
+  if (!res.ok) throw new Error("Failed to fetch dataflows");
+  return res.json();
+}
+
+export async function fetchDataflowRuns(dataflowId: string, session?: string) {
+  const res = await fetch(`${API_BASE}/api/dataflows/${dataflowId}/runs`, withSession(session));
+  if (!res.ok) throw new Error("Failed to fetch dataflow runs");
+  return res.json();
+}

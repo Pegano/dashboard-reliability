@@ -14,6 +14,7 @@ from app.detection.checks import run_all_checks
 from app.alerts.service import send_alerts_for_incidents
 from app.models.auth import Tenant
 from app.models.dataset import Dataset
+from app.models.dataflow import Dataflow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -31,7 +32,8 @@ def poll_job():
         tenants = db.query(Tenant).filter(Tenant.pbi_tenant_id.isnot(None)).all()
         for tenant in tenants:
             tenant_datasets = db.query(Dataset).filter(Dataset.tenant_id == tenant.id).all()
-            incidents = run_all_checks(db, datasets=tenant_datasets)
+            tenant_dataflows = db.query(Dataflow).filter(Dataflow.tenant_id == tenant.id).all()
+            incidents = run_all_checks(db, datasets=tenant_datasets, dataflows=tenant_dataflows)
             if incidents:
                 all_incidents.extend(incidents)
         if all_incidents:

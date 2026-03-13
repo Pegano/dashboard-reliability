@@ -16,6 +16,7 @@ from app.models.dataset import Dataset, RefreshStatus
 from app.models.report import Report
 from app.models.schema import DatasetColumn, DatasetSnapshot
 from app.models.refresh_run import RefreshRun, RunStatus
+from app.models.dataflow import Dataflow, DataflowRun, DataflowRunStatus, DataflowStatus
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,13 @@ def _sync_workspace(db: Session, ws: dict, token: str, tenant_id: str) -> None:
     reports = client.get_reports(ws["id"], token)
     for rp in reports:
         _sync_report(db, ws["id"], rp)
+
+    try:
+        dataflows = client.get_dataflows(ws["id"], token)
+        for df in dataflows:
+            _sync_dataflow(db, ws["id"], df, token, tenant_id)
+    except Exception as e:
+        logger.warning(f"Dataflows ophalen mislukt voor workspace {ws['id']}: {e}")
 
 
 def _sync_dataset(db: Session, workspace_id: str, ds: dict, token: str, tenant_id: str) -> None:
@@ -220,6 +228,23 @@ def _sync_dataset(db: Session, workspace_id: str, ds: dict, token: str, tenant_i
     except Exception as e:
         logger.warning(f"Schema ophalen mislukt voor dataset {ds['id']}: {e}")
 
+    # Dataset parameters ophalen
+    try:
+        params = client.get_dataset_parameters(workspace_id, ds["id"], token)
+        dataset.parameters = [
+            {"name": p.get("name"), "type": p.get("type"), "currentValue": p.get("currentValue")}
+            for p in params
+        ] or None
+    except Exception as e:
+        logger.warning(f"Parameters ophalen mislukt voor dataset {ds['id']}: {e}")
+
+    # Upstream dataflows ophalen (welke dataflows voeden deze dataset)
+    try:
+        upstream = client.get_upstream_dataflows(workspace_id, ds["id"], token)
+        dataset.upstream_dataflow_ids = [u.get("dataflowId") for u in upstream if u.get("dataflowId")] or None
+    except Exception as e:
+        logger.warning(f"Upstream dataflows ophalen mislukt voor dataset {ds['id']}: {e}")
+
 
 def _sync_schema(db: Session, dataset_id: str, columns: list[dict]) -> None:
     seen_ids = set()
@@ -310,3 +335,99 @@ def _sync_report(db: Session, workspace_id: str, rp: dict) -> None:
     report.web_url = rp.get("webUrl")
     report.synced_at = datetime.datetime.utcnow()
     db.merge(report)
+
+
+def _sync_dataflow(db: Session, workspace_id: str, df: dict, token: str, tenant_id: str) -> None:
+    dataflow = db.get(Dataflow, df["objectId"]) or Dataflow(id=df["objectId"])
+    dataflow.tenant_id = tenant_id
+    dataflow.workspace_id = workspace_id
+    dataflow.name = df.get("name", "")
+    dataflow.description = df.get("description")
+    dataflow.synced_at = datetime.datetime.utcnow()
+    db.merge(dataflow)
+    db.flush()
+
+    # Transaction history ophalen
+    try:
+        transactions = client.get_dataflow_transactions(workspace_id, df["objectId"], token)
+        if transactions:
+            latest = transactions[0]
+            raw_status = latest.get("status", "InProgress")
+            try:
+                dataflow.refresh_status = DataflowStatus[raw_status.lower()] if raw_status.lower() in DataflowStatus.__members__ else DataflowStatus.unknown
+            except Exception:
+                dataflow.refresh_status = DataflowStatus.unknown
+
+            if latest.get("endTime"):
+                try:
+                    dataflow.last_refresh_at = datetime.datetime.fromisoformat(
+                        latest["endTime"].replace("Z", "+00:00")
+                    )
+                except Exception:
+                    pass
+
+            status_map = {
+                "success": DataflowRunStatus.Success,
+                "failed": DataflowRunStatus.Failed,
+                "cancelled": DataflowRunStatus.Cancelled,
+                "inprogress": DataflowRunStatus.InProgress,
+            }
+
+            for tx in transactions:
+                tx_id = tx.get("id") or tx.get("transactionId")
+                if not tx_id:
+                    continue
+
+                raw_tx_status = (tx.get("status") or "InProgress").lower()
+                tx_status = status_map.get(raw_tx_status, DataflowRunStatus.InProgress)
+
+                started_at = None
+                if tx.get("startTime"):
+                    try:
+                        started_at = datetime.datetime.fromisoformat(
+                            tx["startTime"].replace("Z", "+00:00")
+                        )
+                    except Exception:
+                        pass
+
+                ended_at = None
+                if tx.get("endTime"):
+                    try:
+                        ended_at = datetime.datetime.fromisoformat(
+                            tx["endTime"].replace("Z", "+00:00")
+                        )
+                    except Exception:
+                        pass
+
+                run = db.get(DataflowRun, tx_id) or DataflowRun(id=tx_id)
+                run.dataflow_id = df["objectId"]
+                run.status = tx_status
+                run.started_at = started_at
+                run.ended_at = ended_at
+                run.error_code = tx.get("errorCode")
+                run.error_message = tx.get("errorMessage") or tx.get("error")
+
+                # Entity detail ophalen voor elke transactie (altijd, niet alleen bij failure)
+                # Nodig voor visuele flow weergave met doorlooptijden per stap
+                try:
+                    entities = client.get_dataflow_transaction_detail(
+                        workspace_id, df["objectId"], tx_id, token
+                    )
+                    if entities:
+                        run.entities = [
+                            {
+                                "name": e.get("entityName") or e.get("name"),
+                                "status": e.get("status"),
+                                "startTime": e.get("startTime"),
+                                "endTime": e.get("endTime"),
+                                "error": e.get("error"),
+                            }
+                            for e in entities
+                        ]
+                except Exception as e:
+                    logger.debug(f"Entity detail ophalen mislukt voor transactie {tx_id}: {e}")
+
+                db.merge(run)
+
+    except Exception as e:
+        logger.warning(f"Dataflow transactions ophalen mislukt voor dataflow {df['objectId']}: {e}")
